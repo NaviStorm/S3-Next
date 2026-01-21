@@ -1,0 +1,25 @@
+# macOS System
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.ide
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Logs
+*.log
+build.log
+
+# VS Code / Editors
+.vscode/
+*.swp
