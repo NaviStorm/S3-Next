@@ -319,13 +319,15 @@ final class S3AppState: ObservableObject {
 
     func deleteObject(key: String) {
         guard let client = client else { return }
+        log("[DELETE] Single Object: \(key)")
         isLoading = true
         Task {
             do {
                 try await client.deleteObject(key: key)
-                log("Deleted: \(key)")
+                log("[DELETE SUCCESS] \(key)")
                 DispatchQueue.main.async { self.loadObjects() }
             } catch {
+                log("[DELETE ERROR] \(key): \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.showToast("Delete Failed: \(error.localizedDescription)", type: .error)
                     self.isLoading = false
@@ -336,13 +338,15 @@ final class S3AppState: ObservableObject {
 
     func deleteFolder(key: String) {
         guard let client = client else { return }
+        log("[DELETE] Folder Recursive: \(key)")
         isLoading = true
         Task {
             do {
                 try await client.deleteRecursive(prefix: key)
-                log("Recursively Deleted Folder: \(key)")
+                log("[DELETE SUCCESS] Recursive Folder: \(key)")
                 DispatchQueue.main.async { self.loadObjects() }
             } catch {
+                log("[DELETE ERROR] Recursive Folder \(key): \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.showToast(
                         "Delete Folder Failed: \(error.localizedDescription)", type: .error)

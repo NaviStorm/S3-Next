@@ -320,7 +320,67 @@ class S3Client {
     }
 
     func deleteRecursive(prefix: String) async throws {
-        // Implementation temporarily removed to fix build
+        var allObjectsToDelete: [S3Object] = []
+        var token: String? = nil
+        var done = false
+
+        print("[Debug Delete] Starting recursive list for: \(prefix)")
+
+        // 1. Collect ALL objects across all pages
+        while !done {
+            let url = try generateDownloadURL(key: "")
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+            var queryItems = [
+                URLQueryItem(name: "list-type", value: "2"),
+                URLQueryItem(name: "prefix", value: prefix),
+            ]
+            if let t = token {
+                queryItems.append(URLQueryItem(name: "continuation-token", value: t))
+            }
+            components.queryItems = queryItems
+
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "GET"
+            try signRequest(request: &request, payload: "")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                (200...299).contains(httpResponse.statusCode)
+            else {
+                print(
+                    "[Debug Delete] List failed with status: \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                )
+                throw S3Error.invalidResponse
+            }
+
+            let parser = S3XMLParser(prefix: prefix, filterPrefix: false)
+            let pageObjects = parser.parse(data: data)
+            allObjectsToDelete.append(contentsOf: pageObjects)
+
+            if parser.isTruncated {
+                token = parser.nextContinuationToken
+            } else {
+                done = true
+            }
+        }
+
+        // 2. Sort by key length descending (deepest files first)
+        // This is crucial for filesystem-like S3 providers.
+        let sortedObjects = allObjectsToDelete.sorted { $0.key.count > $1.key.count }
+
+        print("[Debug Delete] Found \(sortedObjects.count) total objects to delete.")
+
+        // 3. Delete one by one
+        for obj in sortedObjects {
+            do {
+                print("[Debug Delete] Deleting (\(obj.key.count)): \(obj.key)")
+                try await deleteObject(key: obj.key)
+            } catch {
+                print("[Debug Delete] FAILED to delete \(obj.key): \(error.localizedDescription)")
+                throw error
+            }
+        }
+        print("[Debug Delete] Recursive Deletion Finished successfully for: \(prefix)")
     }
 
     func putObject(key: String, data: Data?) async throws {
@@ -343,38 +403,7 @@ class S3Client {
     }
 
     func renameFolderRecursive(oldPrefix: String, newPrefix: String) async throws {
-        // 1. List all objects starting with oldPrefix
-        // We reuse the internal recursive logic or just call listObjects loop?
-        // Let's use listObjects loop manually to ensure we get everything.
-
-        var continuationToken: String? = nil
-        var isTruncated = true
-
-        while isTruncated {
-            // We need a way to list recursive.
-            // Our public listObjects(prefix:) is recursive?
-            // Yes, listObjects(prefix:) usually returns all keys starting with prefix.
-            // But our current implementation parses "CommonPrefixes" (folders) separately if delimiter is used.
-            // By default, if we don't send delimiter, we get all keys.
-            // Let's check `listObjects`. It sets `request.url?.append(queryItems: [URLQueryItem(name: "prefix", value: prefix)])`
-            // AND it sets `delimiter` to `/`?
-            // Let's check listObjects implementation.
-            break  // Safety break until verified
-        }
-
-        // Actually, we should probably implement a specialized internal lister or modify listObjects.
-        // But for now, let's implement a simple version that calls `listObjects` but we need to know if it is recursive.
-        // Looking at `listObjects`, it seems to use delimiter `/` implicitly?
-
-        // Let's implement a clean recursive list-and-process loop here.
-
         var allObjects: [S3Object] = []
-
-        // RECURSIVE LIST (No delimiter)
-        // We need to construct a custom request here or modify listObjects to support 'recursive' flag.
-        // Modifying listObjects is safer.
-        // But let's write a dedicated loop here to avoid touching core logic too much.
-
         var token: String? = nil
         var done = false
 
@@ -402,10 +431,8 @@ class S3Client {
                 throw S3Error.invalidResponse
             }
 
-            let parser = S3XMLParser(prefix: oldPrefix)
+            let parser = S3XMLParser(prefix: oldPrefix, filterPrefix: false)
             let pageObjects = parser.parse(data: data)
-            // Note: S3XMLParser might expect specific format, but usually it parses <Contents> fine.
-            // Without delimiter, CommonPrefixes is empty.
             allObjects.append(contentsOf: pageObjects)
 
             if parser.isTruncated {
@@ -415,11 +442,14 @@ class S3Client {
             }
         }
 
+        // 2. Sort by key length descending (deepest files first)
+        let sortedObjects = allObjects.sorted { $0.key.count > $1.key.count }
+
         print(
-            "DEBUG RECURSIVE RENAME: Found \(allObjects.count) objects to move from \(oldPrefix) to \(newPrefix)"
+            "DEBUG RECURSIVE RENAME: Found \(sortedObjects.count) total objects to move from \(oldPrefix) to \(newPrefix)"
         )
 
-        for obj in allObjects {
+        for obj in sortedObjects {
             let oldKey = obj.key
             // Create new key: Replace oldPrefix with newPrefix at the start
             if oldKey.hasPrefix(oldPrefix) {
@@ -723,9 +753,11 @@ class S3XMLParser: NSObject, XMLParserDelegate {
     var nextContinuationToken: String?
 
     private let inputPrefix: String
+    private let filterPrefix: Bool
 
-    init(prefix: String) {
+    init(prefix: String, filterPrefix: Bool = true) {
         self.inputPrefix = prefix
+        self.filterPrefix = filterPrefix
         super.init()
     }
 
@@ -809,7 +841,7 @@ class S3XMLParser: NSObject, XMLParserDelegate {
                 let normalizedInput =
                     inputPrefix.hasSuffix("/") ? String(inputPrefix.dropLast()) : inputPrefix
 
-                if normalizedKey != normalizedInput {
+                if !filterPrefix || normalizedKey != normalizedInput {
                     // Parse Date
                     let dateString = currentLastModifiedString.trimmingCharacters(
                         in: .whitespacesAndNewlines)
@@ -828,7 +860,8 @@ class S3XMLParser: NSObject, XMLParserDelegate {
 
                     objects.append(
                         S3Object(
-                            key: finalKey, size: currentSize, lastModified: date, isFolder: false))
+                            key: finalKey, size: currentSize, lastModified: date,
+                            isFolder: finalKey.hasSuffix("/")))
                 }
             }
         } else if elementName == "CommonPrefixes" {

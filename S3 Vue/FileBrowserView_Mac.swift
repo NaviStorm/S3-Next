@@ -185,6 +185,7 @@
 
                                         Button("Delete", role: .destructive) {
                                             deleteItemKey = object.key
+                                            deleteIsFolder = object.isFolder
                                             // Ensure selection so user sees what they delete
                                             selectedObjectIds = [object.id]
                                             showingDelete = true
