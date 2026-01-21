@@ -7,6 +7,24 @@ final class S3AppState: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
+    // Toast
+    @Published var toastMessage: String?
+    @Published var toastType: ToastType = .info
+
+    func showToast(_ message: String, type: ToastType = .info) {
+        DispatchQueue.main.async {
+            self.toastMessage = message
+            self.toastType = type
+
+            // Auto dismiss
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                if self.toastMessage == message {
+                    self.toastMessage = nil
+                }
+            }
+        }
+    }
+
     // Config
     @Published var accessKey = ""
     @Published var secretKey = ""
@@ -22,6 +40,7 @@ final class S3AppState: ObservableObject {
     ) {
         let fileName = (file as NSString).lastPathComponent
         let logEntry = "[\(fileName):\(line)] \(function) > \(message)\n"
+        print(logEntry)  // Print to console for Xcode debugging
 
         if Thread.isMainThread {
             self.debugMessage += logEntry
@@ -32,9 +51,46 @@ final class S3AppState: ObservableObject {
         }
     }
 
+    // Sort Options
+    enum SortOption: String, CaseIterable, Identifiable {
+        case name = "Name"
+        case date = "Date"
+        case size = "Size"
+        var id: String { rawValue }
+    }
+
+    @Published var sortOption: SortOption = .name {
+        didSet { applySort() }
+    }
+    @Published var sortAscending: Bool = true {
+        didSet { applySort() }
+    }
+
     // Data
     @Published var currentPath: [String] = []  // Navigation stack (folders)
     @Published var objects: [S3Object] = []
+
+    private func applySort() {
+        // Keep ".." at top
+        let parentItems = objects.filter { $0.key == ".." }
+        var content = objects.filter { $0.key != ".." }
+
+        content.sort { lhs, rhs in
+            if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
+
+            let ascending = self.sortAscending
+            switch self.sortOption {
+            case .name:
+                return ascending ? lhs.key < rhs.key : lhs.key > rhs.key
+            case .date:
+                return ascending
+                    ? lhs.lastModified < rhs.lastModified : lhs.lastModified > rhs.lastModified
+            case .size:
+                return ascending ? lhs.size < rhs.size : lhs.size > rhs.size
+            }
+        }
+        objects = parentItems + content
+    }
 
     private var client: S3Client?
 
@@ -117,14 +173,27 @@ final class S3AppState: ObservableObject {
             do {
                 let (fetchedObjects, debugInfo) = try await client.listObjects(prefix: prefix)
                 DispatchQueue.main.async {
-                    self.objects = fetchedObjects
+                    var finalObjects = fetchedObjects
+
+                    // Synthetic ".." for Navigation
+                    if !self.currentPath.isEmpty {
+                        let parentObj = S3Object(
+                            key: "..",  // Special identifier
+                            size: 0,
+                            lastModified: Date(),
+                            isFolder: true
+                        )
+                        // Insert at top
+                        finalObjects.insert(parentObj, at: 0)
+                    }
+
+                    self.objects = finalObjects
+                    self.applySort()
                     self.log("Objects fetched. Parser logs: \n" + debugInfo)
                     self.isLoading = false
-                    // Force show debug message if recursion suspect
-                    if fetchedObjects.contains(where: { $0.key.hasPrefix(prefix + prefix) }) {  // Heuristic
-                        self.errorMessage = "Potential Recursion Detected"
-                    } else if !debugInfo.isEmpty {
-                        self.errorMessage = "Debug Info Available"
+                    // Heuristic checks removed to prevent false positives hiding the file list
+                    if !debugInfo.isEmpty {
+                        self.log("Debug Info: " + debugInfo)
                     }
                 }
             } catch {
@@ -144,11 +213,13 @@ final class S3AppState: ObservableObject {
     }
 
     func navigateTo(folder: String) {
-        let cleanFolder = folder.replacingOccurrences(of: "/", with: "")
-        guard !cleanFolder.isEmpty else { return }
+        // Do not strip slashes. S3 keys/prefixes can contain slashes (e.g. `diskNAS/Config`).
+        // We only trim whitespace if needed, but usually exact match is key.
+        let targetFolder = folder
+        guard !targetFolder.isEmpty else { return }
 
-        currentPath.append(cleanFolder)
-        log("NAVIGATING TO: '\(cleanFolder)'")
+        currentPath.append(targetFolder)
+        log("NAVIGATING TO: '\(targetFolder)'")
         loadObjects()
     }
 
@@ -188,6 +259,153 @@ final class S3AppState: ObservableObject {
         }
     }
 
+    // MARK: - File Operations
+
+    func createFolder(name: String) {
+        guard let client = client else { return }
+        let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        // Folder in S3 is just a key ending with "/"
+        let folderKey = prefix + name + "/"
+
+        isLoading = true
+        Task {
+            do {
+                try await client.putObject(key: folderKey, data: nil)
+                log("Folder Created: \(folderKey)")
+                DispatchQueue.main.async { self.loadObjects() }
+            } catch {
+                DispatchQueue.main.async {
+                    self.showToast(
+                        "Create Folder Failed: \(error.localizedDescription)", type: .error)
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    func uploadFile(url: URL) {
+        guard let client = client else { return }
+
+        // Security scoped resource check (for sandbox)
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let filename = url.lastPathComponent
+            let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+            let key = prefix + filename
+
+            isLoading = true
+            log("[Upload START] \(filename) (\(data.count) bytes)")
+
+            Task {
+                do {
+                    try await client.putObject(key: key, data: data)
+                    log("[Upload SUCCESS] \(key)")
+                    DispatchQueue.main.async { self.loadObjects() }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.showToast("Upload Failed: \(error.localizedDescription)", type: .error)
+                        self.isLoading = false
+                    }
+                }
+            }
+        } catch {
+            self.showToast("Failed to read file: \(error.localizedDescription)", type: .error)
+            log("[Upload ERROR] Read failed: \(error.localizedDescription)")
+        }
+    }
+
+    func deleteObject(key: String) {
+        guard let client = client else { return }
+        isLoading = true
+        Task {
+            do {
+                try await client.deleteObject(key: key)
+                log("Deleted: \(key)")
+                DispatchQueue.main.async { self.loadObjects() }
+            } catch {
+                DispatchQueue.main.async {
+                    self.showToast("Delete Failed: \(error.localizedDescription)", type: .error)
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    func deleteFolder(key: String) {
+        guard let client = client else { return }
+        isLoading = true
+        Task {
+            do {
+                try await client.deleteRecursive(prefix: key)
+                log("Recursively Deleted Folder: \(key)")
+                DispatchQueue.main.async { self.loadObjects() }
+            } catch {
+                DispatchQueue.main.async {
+                    self.showToast(
+                        "Delete Folder Failed: \(error.localizedDescription)", type: .error)
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    func renameObject(oldKey: String, newName: String, isFolder: Bool) {
+        guard let client = client else { return }
+        // Construct new key
+        // If it's a folder, we must be careful. Renaming a folder in S3 is complex (Move all children).
+        // For now, let's assume SIMPLE rename for files.
+        // For folders, we'd need to list children and move them all. High complexity.
+        // Given constraint of swift assistant, let's implement FILE rename first.
+        // And simple Empty Folder Rename (which is just one object).
+        // If specific logic needed for recursive move, that's a bigger task.
+
+        let pathParts = oldKey.split(separator: "/")
+        // Parent path is everything except last component
+        var parentPath = ""
+        if pathParts.count > 1 {
+            parentPath = pathParts.dropLast().joined(separator: "/") + "/"
+        }
+
+        var newKey = parentPath + newName
+        if isFolder { newKey += "/" }  // Ensure trailing slash if it was a folder
+
+        isLoading = true
+        Task {
+            do {
+                if isFolder {
+                    // Recursive Move
+                    try await client.renameFolderRecursive(oldPrefix: oldKey, newPrefix: newKey)
+                } else {
+                    // Simple File Move
+                    try await client.copyObject(sourceKey: oldKey, destinationKey: newKey)
+                    try await client.deleteObject(key: oldKey)
+                }
+
+                log("Renamed \(oldKey) to \(newKey)")
+                DispatchQueue.main.async { self.loadObjects() }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.showToast("Rename Failed: \(error.localizedDescription)", type: .error)
+                }
+            }
+        }
+    }
+
+    // Stats
+    func calculateFolderStats(folderKey: String) async -> (Int, Int64)? {
+        guard let client = client else { return nil }
+        do {
+            return try await client.calculateFolderStats(prefix: folderKey)
+        } catch {
+            log("[Stats Error] \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func saveConfig() {
         UserDefaults.standard.set(accessKey, forKey: "accessKey")
         UserDefaults.standard.set(bucket, forKey: "bucket")
@@ -197,13 +415,35 @@ final class S3AppState: ObservableObject {
         KeychainHelper.shared.save(secretKey, service: kService, account: kAccount)
     }
 
+    var formattedStats: String {
+        let count = objects.count
+        let totalSize = objects.reduce(0) { $0 + $1.size }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        let sizeString = formatter.string(fromByteCount: totalSize)
+        return "\(count) items • \(sizeString)"
+    }
+
     private func saveFileToDisk(data: Data, filename: String) {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = filename
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                try? data.write(to: url)
+        #if os(macOS)
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = filename
+            panel.begin { response in
+                if response == .OK, let url = panel.url {
+                    try? data.write(to: url)
+                }
             }
-        }
+        #else
+            // iOS Fallback: Save to Documents/Temporary and log (Sharing would be handled by View)
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            do {
+                try data.write(to: tempURL)
+                log("[iOS] Saved to temporary file: \(tempURL.absoluteString)")
+                // Ideally, you would trigger a Share Sheet via a Published property here
+            } catch {
+                log("[iOS] Failed to save file: \(error.localizedDescription)")
+            }
+        #endif
     }
 }

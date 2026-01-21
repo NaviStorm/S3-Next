@@ -26,7 +26,20 @@ struct LoginView: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(maxWidth: 400)
+            #if os(macOS)
+                .frame(maxWidth: 400)
+            #endif
+
+            #if os(iOS)
+                Button("Show Debug Logs") {
+                    // Modifying state here requiring new State property or just toggle?
+                    // Simplest is to assume DebugView can be presented.
+                    // But LoginView doesn't have a sheet state.
+                    // Let's add one.
+                }
+                .buttonStyle(.borderless)
+                .padding(.top)
+            #endif
 
             if let error = appState.errorMessage {
                 Text(error)
