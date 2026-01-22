@@ -217,6 +217,7 @@ class S3Client {
         let sortedObjects = allObjectsToDelete.sorted { $0.key.count > $1.key.count }
         var count = 0
         for obj in sortedObjects {
+            try Task.checkCancellation()
             try await deleteObject(key: obj.key)
             count += 1
             onProgress?(count, sortedObjects.count)
@@ -234,6 +235,7 @@ class S3Client {
         var continuationToken: String? = nil
         var isTruncated = true
         while isTruncated {
+            try Task.checkCancellation()
             // Important: Use root URL with query params for list
             let baseUrl = try generateDownloadURL(key: "")
             var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!
@@ -389,6 +391,7 @@ class S3Client {
         let sortedObjects = allObjects.sorted { $0.key.count > $1.key.count }
         var count = 0
         for obj in sortedObjects {
+            try Task.checkCancellation()
             let oldKey = obj.key
             if oldKey.hasPrefix(oldPrefix) {
                 let suffix = oldKey.dropFirst(oldPrefix.count)

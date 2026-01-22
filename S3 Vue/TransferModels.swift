@@ -13,6 +13,7 @@ enum TransferStatus: String, Codable {
     case inProgress
     case completed
     case failed
+    case cancelled
 }
 
 struct TransferTask: Identifiable {

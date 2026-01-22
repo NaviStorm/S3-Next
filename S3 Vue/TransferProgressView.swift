@@ -16,8 +16,8 @@ struct TransferProgressView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(appState.transferTasks) { task in
-                        TransferTaskRow(task: task)
+                    ForEach(appState.transferTasks) { transferTask in
+                        TransferTaskRow(transferTask: transferTask)
                     }
                     .onDelete { indexSet in
                         appState.transferTasks.remove(atOffsets: indexSet)
@@ -31,6 +31,7 @@ struct TransferProgressView: View {
                     Button("Tout effacer") {
                         appState.transferTasks.removeAll {
                             $0.status == .completed || $0.status == .failed
+                                || $0.status == .cancelled
                         }
                     }
                     .buttonStyle(.borderless)
@@ -46,46 +47,63 @@ struct TransferProgressView: View {
 }
 
 struct TransferTaskRow: View {
-    let task: TransferTask
+    @EnvironmentObject var appState: S3AppState
+    let transferTask: TransferTask
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(
-                    systemName: task.type == .upload
+                    systemName: transferTask.type == .upload
                         ? "arrow.up.circle.fill"
-                        : task.type == .download
+                        : transferTask.type == .download
                             ? "arrow.down.circle.fill"
-                            : task.type == .rename ? "pencil.circle.fill" : "trash.circle.fill"
+                            : transferTask.type == .rename
+                                ? "pencil.circle.fill" : "trash.circle.fill"
                 )
                 .foregroundColor(
-                    task.type == .upload
+                    transferTask.type == .upload
                         ? .blue
-                        : task.type == .download ? .green : task.type == .rename ? .orange : .red
+                        : transferTask.type == .download
+                            ? .green : transferTask.type == .rename ? .orange : .red
                 )
-                Text(task.name)
+                Text(transferTask.name)
                     .fontWeight(.medium)
                 Spacer()
-                if task.status == .completed {
+                if transferTask.status == .completed {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                } else if task.status == .failed {
+                } else if transferTask.status == .failed {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.red)
+                } else if transferTask.status == .cancelled {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                } else if transferTask.status == .inProgress {
+                    Button(action: { appState.cancelTask(id: transferTask.id) }) {
+                        Image(systemName: "xmark.circle")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
-            ProgressView(value: task.progress)
+            ProgressView(value: transferTask.progress)
                 .progressViewStyle(.linear)
+                .tint(transferTask.status == .cancelled ? .gray : .blue)
 
             HStack {
-                Text("\(task.completedFiles) / \(task.totalFiles) fichiers")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text(
+                    transferTask.type == .upload || transferTask.type == .download
+                        ? "\(transferTask.completedFiles) / \(transferTask.totalFiles) fichiers"
+                        : "\(transferTask.completedFiles) / \(transferTask.totalFiles) objets"
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
 
                 Spacer()
 
-                if let error = task.errorMessage {
+                if let error = transferTask.errorMessage {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
@@ -93,7 +111,7 @@ struct TransferTaskRow: View {
                 } else {
                     Text(statusText)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(transferTask.status == .cancelled ? .gray : .secondary)
                 }
             }
         }
@@ -101,11 +119,12 @@ struct TransferTaskRow: View {
     }
 
     var statusText: String {
-        switch task.status {
+        switch transferTask.status {
         case .pending: return "En attente..."
-        case .inProgress: return "\(Int(task.progress * 100))%"
+        case .inProgress: return "\(Int(transferTask.progress * 100))%"
         case .completed: return "Terminé"
         case .failed: return "Échoué"
+        case .cancelled: return "Annulé"
         }
     }
 }

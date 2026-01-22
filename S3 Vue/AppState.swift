@@ -13,6 +13,7 @@ final class S3AppState: ObservableObject {
 
     // Transfer Tasks
     @Published var transferTasks: [TransferTask] = []
+    private var activeTasks: [UUID: Task<Void, Never>] = [:]
 
     func showToast(_ message: String, type: ToastType = .info) {
         DispatchQueue.main.async {
@@ -25,6 +26,17 @@ final class S3AppState: ObservableObject {
                     self.toastMessage = nil
                 }
             }
+        }
+    }
+
+    func cancelTask(id: UUID) {
+        if let task = activeTasks[id] {
+            task.cancel()
+            activeTasks.removeValue(forKey: id)
+            if let index = transferTasks.firstIndex(where: { $0.id == id }) {
+                transferTasks[index].status = .cancelled
+            }
+            log("[Task] Cancelled: \(id)")
         }
     }
 
@@ -251,11 +263,11 @@ final class S3AppState: ObservableObject {
         guard let client = client else { return }
         let filename = key.components(separatedBy: "/").last ?? "download"
 
-        var task = TransferTask(
+        var downloadTask = TransferTask(
             type: .download, name: filename, progress: 0, status: .inProgress, totalFiles: 1,
             completedFiles: 0)
-        let taskId = task.id
-        transferTasks.append(task)
+        let taskId = downloadTask.id
+        transferTasks.append(downloadTask)
 
         #if os(macOS)
             // No longer set global isLoading to true for file downloads on macOS
@@ -266,21 +278,29 @@ final class S3AppState: ObservableObject {
         let logSuffix = versionId != nil ? " (Version: \(versionId!))" : ""
         log("[Download START] \(key)\(logSuffix)")
 
-        Task {
+        let task = Task {
             do {
-                let (data, logs) = try await client.fetchObjectData(key: key, versionId: versionId)
+                let (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
 
                 DispatchQueue.main.async {
+                    self.saveFileToDisk(data: data, filename: filename)
                     if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                         self.transferTasks[index].completedFiles = 1
                         self.transferTasks[index].progress = 1.0
                         self.transferTasks[index].status = .completed
                     }
-
-                    self.log(logs)
-                    self.log("[Download SUCCESS] Size: \(data.count) bytes")
-                    self.saveFileToDisk(data: data, filename: filename)
-
+                    self.activeTasks.removeValue(forKey: taskId)
+                    self.log("[Download SUCCESS] \(key)")
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .cancelled
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
                     #if !os(macOS)
                         self.isLoading = false
                     #endif
@@ -291,16 +311,16 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .failed
                         self.transferTasks[index].errorMessage = error.localizedDescription
                     }
-
-                    self.errorMessage = "Le téléchargement a échoué : \(error.localizedDescription)"
-                    self.log("[Download ERROR] \(error.localizedDescription)")
-
+                    self.activeTasks.removeValue(forKey: taskId)
+                    self.showToast("Download Failed: \(error.localizedDescription)", type: .error)
                     #if !os(macOS)
                         self.isLoading = false
                     #endif
                 }
+                self.log("[Download ERROR] \(error.localizedDescription)")
             }
         }
+        activeTasks[taskId] = task
     }
 
     func loadACL(for key: String) {
@@ -458,7 +478,7 @@ final class S3AppState: ObservableObject {
             isLoading = true
         #endif
 
-        Task {
+        let task = Task {
             // Security scoped resource check (for sandbox)
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
@@ -475,8 +495,19 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].progress = 1.0
                         self.transferTasks[index].status = .completed
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.log("[Upload SUCCESS] \(key)")
                     self.loadObjects()
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .cancelled
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
                     #if !os(macOS)
                         self.isLoading = false
                     #endif
@@ -487,6 +518,7 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .failed
                         self.transferTasks[index].errorMessage = error.localizedDescription
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Upload Failed: \(error.localizedDescription)", type: .error)
                     #if !os(macOS)
                         self.isLoading = false
@@ -495,6 +527,7 @@ final class S3AppState: ObservableObject {
                 self.log("[Upload ERROR] \(error.localizedDescription)")
             }
         }
+        activeTasks[taskId] = task
     }
 
     func uploadFolder(url: URL) {
@@ -518,7 +551,9 @@ final class S3AppState: ObservableObject {
 
         log("[Upload Folder START] \(folderName) -> \(targetPrefix)")
 
-        Task {
+        log("[Upload Folder START] \(folderName) -> \(targetPrefix)")
+
+        let task = Task {
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
@@ -544,6 +579,7 @@ final class S3AppState: ObservableObject {
 
                 var uploadCount = 0
                 for fileURL in allFiles {
+                    try Task.checkCancellation()
                     // Normaliser les chemins pour corriger les problèmes d'accents sur macOS (NFD vs NFC)
                     let fileURLPath = fileURL.path.precomposedStringWithCanonicalMapping
                     let baseUrlPath = url.path.precomposedStringWithCanonicalMapping
@@ -571,8 +607,19 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .completed
                         self.transferTasks[index].progress = 1.0
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Dossier envoyé avec succès", type: .success)
                     self.loadObjects()
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .cancelled
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
                     #if !os(macOS)
                         self.isLoading = false
                     #endif
@@ -584,6 +631,7 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .failed
                         self.transferTasks[index].errorMessage = error.localizedDescription
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Échec de l'envoi du dossier", type: .error)
                     #if !os(macOS)
                         self.isLoading = false
@@ -591,6 +639,7 @@ final class S3AppState: ObservableObject {
                 }
             }
         }
+        activeTasks[taskId] = task
     }
 
     func downloadFolder(key: String) {
@@ -611,7 +660,7 @@ final class S3AppState: ObservableObject {
 
         log("[Download Folder START] \(key)")
 
-        Task {
+        let task = Task {
             do {
                 let allObjects = try await client.listAllObjects(prefix: key)
                 let filesToDownload = allObjects.filter { !$0.isFolder }
@@ -635,6 +684,7 @@ final class S3AppState: ObservableObject {
 
                 var completedCount = 0
                 for obj in filesToDownload {
+                    try Task.checkCancellation()
                     let relativePath = obj.key.replacingOccurrences(of: key, with: "")
                     let localURL = targetFolder.appendingPathComponent(relativePath)
 
@@ -643,6 +693,7 @@ final class S3AppState: ObservableObject {
                         at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
                     let (data, _) = try await client.fetchObjectData(key: obj.key)
+                    try Task.checkCancellation()
                     try data.write(to: localURL)
                     completedCount += 1
 
@@ -662,7 +713,18 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .completed
                         self.transferTasks[index].progress = 1.0
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Dossier téléchargé", type: .success)
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .cancelled
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
                     #if !os(macOS)
                         self.isLoading = false
                     #endif
@@ -674,6 +736,7 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .failed
                         self.transferTasks[index].errorMessage = error.localizedDescription
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Échec du téléchargement", type: .error)
                     #if !os(macOS)
                         self.isLoading = false
@@ -681,6 +744,7 @@ final class S3AppState: ObservableObject {
                 }
             }
         }
+        activeTasks[taskId] = task
     }
 
     private func saveFolderToDisk(url: URL) {
@@ -750,13 +814,14 @@ final class S3AppState: ObservableObject {
             totalFiles: 0,
             completedFiles: 0
         )
+        let taskId = task.id
         DispatchQueue.main.async { self.transferTasks.append(task) }
 
-        Task {
+        let deleteTask = Task {
             do {
                 try await client.deleteRecursive(prefix: key) { completed, total in
                     DispatchQueue.main.async {
-                        if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                             self.transferTasks[index].totalFiles = total
                             self.transferTasks[index].completedFiles = completed
                             self.transferTasks[index].progress = Double(completed) / Double(total)
@@ -765,25 +830,35 @@ final class S3AppState: ObservableObject {
                 }
                 log("[DELETE SUCCESS] Recursive Folder: \(key)")
                 DispatchQueue.main.async {
-                    if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                         self.transferTasks[index].status = .completed
                         self.transferTasks[index].progress = 1.0
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.loadObjects()
                     self.showToast("Dossier supprimé", type: .success)
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .cancelled
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
                 }
             } catch {
                 log("[DELETE ERROR] Recursive Folder \(key): \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                         self.transferTasks[index].status = .failed
                         self.transferTasks[index].errorMessage = error.localizedDescription
                     }
+                    self.activeTasks.removeValue(forKey: taskId)
                     self.showToast(
                         "Delete Folder Failed: \(error.localizedDescription)", type: .error)
                 }
             }
         }
+        activeTasks[taskId] = deleteTask
     }
 
     func renameObject(oldKey: String, newName: String, isFolder: Bool) {
@@ -812,14 +887,15 @@ final class S3AppState: ObservableObject {
                 totalFiles: 0,
                 completedFiles: 0
             )
+            let taskId = task.id
             DispatchQueue.main.async { self.transferTasks.append(task) }
 
-            Task {
+            let renameTask = Task {
                 do {
                     try await client.renameFolderRecursive(oldPrefix: oldKey, newPrefix: newKey) {
                         completed, total in
                         DispatchQueue.main.async {
-                            if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }
+                            if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }
                             ) {
                                 self.transferTasks[index].totalFiles = total
                                 self.transferTasks[index].completedFiles = completed
@@ -830,25 +906,35 @@ final class S3AppState: ObservableObject {
                     }
                     log("Renamed folder \(oldKey) to \(newKey)")
                     DispatchQueue.main.async {
-                        if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                             self.transferTasks[index].status = .completed
                             self.transferTasks[index].progress = 1.0
                         }
+                        self.activeTasks.removeValue(forKey: taskId)
                         self.loadObjects()
                         self.showToast("Dossier renommé avec succès", type: .success)
+                    }
+                } catch is CancellationError {
+                    DispatchQueue.main.async {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                            self.transferTasks[index].status = .cancelled
+                        }
+                        self.activeTasks.removeValue(forKey: taskId)
                     }
                 } catch {
                     log("[RENAME ERROR] \(error.localizedDescription)")
                     DispatchQueue.main.async {
-                        if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                             self.transferTasks[index].status = .failed
                             self.transferTasks[index].errorMessage = error.localizedDescription
                         }
+                        self.activeTasks.removeValue(forKey: taskId)
                         self.showToast(
                             "Rename Folder Failed: \(error.localizedDescription)", type: .error)
                     }
                 }
             }
+            activeTasks[taskId] = renameTask
         } else {
             isLoading = true
             Task {
