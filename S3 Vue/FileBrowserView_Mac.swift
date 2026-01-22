@@ -9,6 +9,7 @@
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
         @State private var showingFileImporter = false
+        @State private var showingFolderImporter = false
 
         @State private var showingRename = false
         @State private var renameItemKey = ""
@@ -85,10 +86,32 @@
                         }
                         .help("Nouveau Dossier")
 
-                        Button(action: { showingFileImporter = true }) {
-                            Image(systemName: "arrow.up.doc")
+                        Menu {
+                            Button("Envoyer des fichiers sur S3...") {
+                                showingFileImporter = true
+                            }
+                            Button("Envoyer un dossier sur S3...") {
+                                showingFolderImporter = true
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
                         }
-                        .help("Téléverser des fichiers")
+                        .menuStyle(.borderlessButton)
+                        .frame(width: 30)
+                        .help("Envoyer (Upload) du contenu vers S3")
+
+                        if let selected = selectedObject {
+                            Button(action: {
+                                if selected.isFolder {
+                                    appState.downloadFolder(key: selected.key)
+                                } else {
+                                    appState.downloadFile(key: selected.key)
+                                }
+                            }) {
+                                Image(systemName: "square.and.arrow.down")
+                            }
+                            .help("Télécharger l'élément sélectionné sur mon Mac")
+                        }
 
                         Button("Déconnexion") {
                             appState.disconnect()
@@ -106,18 +129,6 @@
                         }
                         Button("Annuler", role: .cancel) { newFolderName = "" }
                     }
-                    .alert("Renommer", isPresented: $showingRename) {
-                        TextField("Nouveau Nom", text: $renameItemName)
-                        Button("Renommer") {
-                            if !renameItemName.isEmpty {
-                                appState.renameObject(
-                                    oldKey: renameItemKey, newName: renameItemName,
-                                    isFolder: renameIsFolder)
-                                renameItemName = ""
-                            }
-                        }
-                        Button("Annuler", role: .cancel) { renameItemName = "" }
-                    }
                     .fileImporter(
                         isPresented: $showingFileImporter,
                         allowedContentTypes: [.data],
@@ -133,6 +144,34 @@
                                 "File selection failed: \(error.localizedDescription)", type: .error
                             )
                         }
+                    }
+                    .fileImporter(
+                        isPresented: $showingFolderImporter,
+                        allowedContentTypes: [.folder],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        switch result {
+                        case .success(let urls):
+                            if let url = urls.first {
+                                appState.uploadFolder(url: url)
+                            }
+                        case .failure(let error):
+                            appState.showToast(
+                                "Folder selection failed: \(error.localizedDescription)",
+                                type: .error
+                            )
+                        }
+                    }
+                    .alert("Renommer", isPresented: $showingRename) {
+                        TextField("Nouveau nom", text: $renameItemName)
+                        Button("Renommer") {
+                            if !renameItemName.isEmpty {
+                                appState.renameObject(
+                                    oldKey: renameItemKey, newName: renameItemName,
+                                    isFolder: renameIsFolder)
+                            }
+                        }
+                        Button("Annuler", role: .cancel) { renameItemName = "" }
                     }
                     .alert("Delete", isPresented: $showingDelete) {
                         Button("Delete", role: .destructive) {
@@ -214,6 +253,10 @@
                                                     appState.copyPresignedURL(
                                                         for: object.key, expires: 86400)
                                                 }
+                                            }
+                                        } else {
+                                            Button("Télécharger le dossier") {
+                                                appState.downloadFolder(key: object.key)
                                             }
                                         }
 

@@ -1,27 +1,5 @@
 import SwiftUI
 
-enum ToastType {
-    case info
-    case error
-    case success
-
-    var color: Color {
-        switch self {
-        case .info: return .blue
-        case .error: return .red
-        case .success: return .green
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .info: return "info.circle.fill"
-        case .error: return "exclamationmark.triangle.fill"
-        case .success: return "checkmark.circle.fill"
-        }
-    }
-}
-
 struct ToastView: View {
     @Binding var message: String?
     var type: ToastType = .info
@@ -29,6 +7,7 @@ struct ToastView: View {
     var body: some View {
         if let msg = message {
             VStack {
+                // Sur macOS on peut le mettre en haut ou en bas, ici on reste sur le style existant
                 Spacer()
                 HStack(alignment: .center, spacing: 12) {
                     Image(systemName: type.icon)

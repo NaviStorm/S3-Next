@@ -11,6 +11,9 @@ final class S3AppState: ObservableObject {
     @Published var toastMessage: String?
     @Published var toastType: ToastType = .info
 
+    // Transfer Tasks
+    @Published var transferTasks: [TransferTask] = []
+
     func showToast(_ message: String, type: ToastType = .info) {
         DispatchQueue.main.async {
             self.toastMessage = message
@@ -246,24 +249,55 @@ final class S3AppState: ObservableObject {
 
     func downloadFile(key: String, versionId: String? = nil) {
         guard let client = client else { return }
-        isLoading = true
+        let filename = key.components(separatedBy: "/").last ?? "download"
+
+        var task = TransferTask(
+            type: .download, name: filename, progress: 0, status: .inProgress, totalFiles: 1,
+            completedFiles: 0)
+        let taskId = task.id
+        transferTasks.append(task)
+
+        #if os(macOS)
+            // No longer set global isLoading to true for file downloads on macOS
+        #else
+            isLoading = true
+        #endif
+
         let logSuffix = versionId != nil ? " (Version: \(versionId!))" : ""
         log("[Download START] \(key)\(logSuffix)")
+
         Task {
             do {
                 let (data, logs) = try await client.fetchObjectData(key: key, versionId: versionId)
+
                 DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].completedFiles = 1
+                        self.transferTasks[index].progress = 1.0
+                        self.transferTasks[index].status = .completed
+                    }
+
                     self.log(logs)
                     self.log("[Download SUCCESS] Size: \(data.count) bytes")
-                    self.saveFileToDisk(
-                        data: data, filename: key.components(separatedBy: "/").last ?? "download")
-                    self.isLoading = false
+                    self.saveFileToDisk(data: data, filename: filename)
+
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
                 }
             } catch {
                 DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .failed
+                        self.transferTasks[index].errorMessage = error.localizedDescription
+                    }
+
                     self.errorMessage = "Le téléchargement a échoué : \(error.localizedDescription)"
                     self.log("[Download ERROR] \(error.localizedDescription)")
-                    self.isLoading = false
+
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
                 }
             }
         }
@@ -408,36 +442,281 @@ final class S3AppState: ObservableObject {
     func uploadFile(url: URL) {
         guard let client = client else { return }
 
-        // Security scoped resource check (for sandbox)
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let filename = url.lastPathComponent
+        let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        let key = prefix + filename
 
-        do {
-            let data = try Data(contentsOf: url)
-            let filename = url.lastPathComponent
-            let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
-            let key = prefix + filename
+        var transferTask = TransferTask(
+            type: .upload, name: filename, progress: 0, status: .inProgress, totalFiles: 1,
+            completedFiles: 0)
+        let taskId = transferTask.id
+        transferTasks.append(transferTask)
 
+        #if os(macOS)
+            // No longer set global isLoading to true for file uploads on macOS
+        #else
             isLoading = true
-            log("[Upload START] \(filename) (\(data.count) bytes)")
+        #endif
 
-            Task {
-                do {
-                    try await client.putObject(key: key, data: data)
-                    log("[Upload SUCCESS] \(key)")
-                    DispatchQueue.main.async { self.loadObjects() }
-                } catch {
-                    DispatchQueue.main.async {
-                        self.showToast("Upload Failed: \(error.localizedDescription)", type: .error)
+        Task {
+            // Security scoped resource check (for sandbox)
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+
+            do {
+                let data = try Data(contentsOf: url)
+                log("[Upload START] \(filename) (\(data.count) bytes)")
+
+                try await client.putObject(key: key, data: data)
+
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].completedFiles = 1
+                        self.transferTasks[index].progress = 1.0
+                        self.transferTasks[index].status = .completed
+                    }
+                    self.log("[Upload SUCCESS] \(key)")
+                    self.loadObjects()
+                    #if !os(macOS)
                         self.isLoading = false
+                    #endif
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .failed
+                        self.transferTasks[index].errorMessage = error.localizedDescription
+                    }
+                    self.showToast("Upload Failed: \(error.localizedDescription)", type: .error)
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+                self.log("[Upload ERROR] \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func uploadFolder(url: URL) {
+        guard let client = client else { return }
+
+        let folderName = url.lastPathComponent
+        let s3Prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        let targetPrefix = s3Prefix + folderName + "/"
+
+        var transferTask = TransferTask(
+            type: .upload, name: folderName, progress: 0, status: .inProgress, totalFiles: 0,
+            completedFiles: 0)
+        let taskId = transferTask.id
+        transferTasks.append(transferTask)
+
+        #if os(macOS)
+            // No longer set global isLoading to true
+        #else
+            isLoading = true
+        #endif
+
+        log("[Upload Folder START] \(folderName) -> \(targetPrefix)")
+
+        Task {
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+
+            do {
+                let fileManager = FileManager.default
+                let enumerator = fileManager.enumerator(
+                    at: url, includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles])
+
+                var allFiles: [URL] = []
+                while let fileURL = enumerator?.nextObject() as? URL {
+                    let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                    if resourceValues.isRegularFile == true {
+                        allFiles.append(fileURL)
+                    }
+                }
+
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].totalFiles = allFiles.count
+                    }
+                }
+
+                var uploadCount = 0
+                for fileURL in allFiles {
+                    // Normaliser les chemins pour corriger les problèmes d'accents sur macOS (NFD vs NFC)
+                    let fileURLPath = fileURL.path.precomposedStringWithCanonicalMapping
+                    let baseUrlPath = url.path.precomposedStringWithCanonicalMapping
+
+                    let relativePath = fileURLPath.replacingOccurrences(
+                        of: baseUrlPath + "/", with: "")
+                    let s3Key = targetPrefix + relativePath
+
+                    log("[Upload Folder] Uploading: \(relativePath)...")
+                    let data = try Data(contentsOf: fileURL)
+                    try await client.putObject(key: s3Key, data: data)
+                    uploadCount += 1
+
+                    DispatchQueue.main.async {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                            self.transferTasks[index].completedFiles = uploadCount
+                            self.transferTasks[index].progress =
+                                Double(uploadCount) / Double(allFiles.count)
+                        }
+                    }
+                }
+
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .completed
+                        self.transferTasks[index].progress = 1.0
+                    }
+                    self.showToast("Dossier envoyé avec succès", type: .success)
+                    self.loadObjects()
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            } catch {
+                log("[Upload Folder ERROR] \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .failed
+                        self.transferTasks[index].errorMessage = error.localizedDescription
+                    }
+                    self.showToast("Échec de l'envoi du dossier", type: .error)
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            }
+        }
+    }
+
+    func downloadFolder(key: String) {
+        guard let client = client else { return }
+
+        let folderName = key.split(separator: "/").last ?? "download"
+        var transferTask = TransferTask(
+            type: .download, name: String(folderName), progress: 0, status: .inProgress,
+            totalFiles: 0, completedFiles: 0)
+        let taskId = transferTask.id
+        transferTasks.append(transferTask)
+
+        #if os(macOS)
+            // No longer set global isLoading to true
+        #else
+            isLoading = true
+        #endif
+
+        log("[Download Folder START] \(key)")
+
+        Task {
+            do {
+                let allObjects = try await client.listAllObjects(prefix: key)
+                let filesToDownload = allObjects.filter { !$0.isFolder }
+
+                log("[Download Folder] Found \(filesToDownload.count) files")
+
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].totalFiles = filesToDownload.count
+                    }
+                }
+
+                // We need a base directory to save into
+                let fileManager = FileManager.default
+                let tempBase = fileManager.temporaryDirectory.appendingPathComponent(
+                    UUID().uuidString, isDirectory: true)
+                let targetFolder = tempBase.appendingPathComponent(
+                    String(folderName), isDirectory: true)
+
+                try fileManager.createDirectory(at: targetFolder, withIntermediateDirectories: true)
+
+                var completedCount = 0
+                for obj in filesToDownload {
+                    let relativePath = obj.key.replacingOccurrences(of: key, with: "")
+                    let localURL = targetFolder.appendingPathComponent(relativePath)
+
+                    // Ensure subdirectory exists
+                    try fileManager.createDirectory(
+                        at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+                    let (data, _) = try await client.fetchObjectData(key: obj.key)
+                    try data.write(to: localURL)
+                    completedCount += 1
+
+                    DispatchQueue.main.async {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                            self.transferTasks[index].completedFiles = completedCount
+                            self.transferTasks[index].progress =
+                                Double(completedCount) / Double(filesToDownload.count)
+                        }
+                    }
+                    log("[Download Folder] Saved \(relativePath)")
+                }
+
+                DispatchQueue.main.async {
+                    self.saveFolderToDisk(url: targetFolder)
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .completed
+                        self.transferTasks[index].progress = 1.0
+                    }
+                    self.showToast("Dossier téléchargé", type: .success)
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            } catch {
+                log("[Download Folder ERROR] \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .failed
+                        self.transferTasks[index].errorMessage = error.localizedDescription
+                    }
+                    self.showToast("Échec du téléchargement", type: .error)
+                    #if !os(macOS)
+                        self.isLoading = false
+                    #endif
+                }
+            }
+        }
+    }
+
+    private func saveFolderToDisk(url: URL) {
+        #if os(macOS)
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.prompt = "Choisir"
+            panel.message = "Le dossier sera copié dans l'emplacement choisi."
+
+            panel.begin { response in
+                if response == .OK, let destination = panel.url {
+                    do {
+                        // Use the original folder name if possible, or target URL's last component
+                        let folderName = url.lastPathComponent
+                        let finalDest = destination.appendingPathComponent(folderName)
+
+                        if FileManager.default.fileExists(atPath: finalDest.path) {
+                            try FileManager.default.removeItem(at: finalDest)
+                        }
+                        try FileManager.default.copyItem(at: url, to: finalDest)
+                        self.showToast("Dossier '\(folderName)' sauvegardé !", type: .success)
+                    } catch {
+                        self.log("[macOS] Folder Save Error: \(error.localizedDescription)")
+                        self.showToast(
+                            "Erreur de sauvegarde : \(error.localizedDescription)", type: .error)
                     }
                 }
             }
-        } catch {
-            self.showToast(
-                "Échec de la lecture du fichier : \(error.localizedDescription)", type: .error)
-            log("[Upload ERROR] Read failed: \(error.localizedDescription)")
-        }
+        #else
+            // iOS: Share the folder via Share Sheet
+            DispatchQueue.main.async {
+                self.pendingDownloadURL = url
+            }
+        #endif
     }
 
     func deleteObject(key: String) {
@@ -481,43 +760,42 @@ final class S3AppState: ObservableObject {
 
     func renameObject(oldKey: String, newName: String, isFolder: Bool) {
         guard let client = client else { return }
-        // Construct new key
-        // If it's a folder, we must be careful. Renaming a folder in S3 is complex (Move all children).
-        // For now, let's assume SIMPLE rename for files.
-        // For folders, we'd need to list children and move them all. High complexity.
-        // Given constraint of swift assistant, let's implement FILE rename first.
-        // And simple Empty Folder Rename (which is just one object).
-        // If specific logic needed for recursive move, that's a bigger task.
+        log("[RENAME] From: \(oldKey) To Name: \(newName)")
 
-        let pathParts = oldKey.split(separator: "/")
-        // Parent path is everything except last component
-        var parentPath = ""
-        if pathParts.count > 1 {
-            parentPath = pathParts.dropLast().joined(separator: "/") + "/"
+        // Correct parent path calculation
+        let parentPath: String
+        let normalizedOldKey =
+            oldKey.hasSuffix("/") && isFolder ? String(oldKey.dropLast()) : oldKey
+        if let lastSlashIndex = normalizedOldKey.lastIndex(of: "/") {
+            parentPath = String(normalizedOldKey[...lastSlashIndex])
+        } else {
+            parentPath = ""
         }
 
-        var newKey = parentPath + newName
-        if isFolder { newKey += "/" }  // Ensure trailing slash if it was a folder
+        var newKey = (parentPath + newName).precomposedStringWithCanonicalMapping
+        if isFolder { newKey += "/" }
 
         isLoading = true
         Task {
             do {
                 if isFolder {
-                    // Recursive Move
                     try await client.renameFolderRecursive(oldPrefix: oldKey, newPrefix: newKey)
                 } else {
-                    // Simple File Move
                     try await client.copyObject(sourceKey: oldKey, destinationKey: newKey)
                     try await client.deleteObject(key: oldKey)
                 }
 
                 log("Renamed \(oldKey) to \(newKey)")
-                DispatchQueue.main.async { self.loadObjects() }
+                DispatchQueue.main.async {
+                    self.loadObjects()
+                    self.showToast("Objet renommé avec succès", type: .success)
+                }
             } catch {
                 DispatchQueue.main.async {
                     self.isLoading = false
                     self.showToast("Rename Failed: \(error.localizedDescription)", type: .error)
                 }
+                self.log("[RENAME ERROR] \(error.localizedDescription)")
             }
         }
     }
