@@ -9,6 +9,9 @@ import UniformTypeIdentifiers
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
         @State private var showingFileImporter = false
+        @State private var showingVersions = false
+        @State private var showingSettings = false
+        @State private var selectedVerObject: S3Object? = nil
 
         @State private var showingRename = false
         @State private var renameItemKey = ""
@@ -118,6 +121,16 @@ import UniformTypeIdentifiers
                                             }) {
                                                 Label("Download", systemImage: "arrow.down.circle")
                                             }
+
+                                            Button(action: {
+                                                selectedVerObject = object
+                                                appState.loadVersions(for: object.key)
+                                                showingVersions = true
+                                            }) {
+                                                Label(
+                                                    "Versions",
+                                                    systemImage: "clock.arrow.circlepath")
+                                            }
                                         }
 
                                         Button(
@@ -169,6 +182,10 @@ import UniformTypeIdentifiers
 
                             Button(action: { showingCreateFolder = true }) {
                                 Image(systemName: "folder.badge.plus")
+                            }
+
+                            Button(action: { showingSettings = true }) {
+                                Image(systemName: "gear")
                             }
 
                             Button(action: { showingFileImporter = true }) {
@@ -243,6 +260,75 @@ import UniformTypeIdentifiers
                 ) {
                     if let url = appState.pendingDownloadURL {
                         ActivityView(activityItems: [url])
+                    }
+                }
+                .sheet(isPresented: $showingVersions) {
+                    NavigationStack {
+                        VStack {
+                            if appState.isVersionsLoading {
+                                ProgressView("Loading versions...")
+                            } else {
+                                List(appState.selectedObjectVersions) { version in
+                                    VStack(alignment: .leading) {
+                                        HStack {
+                                            VStack(alignment: .leading) {
+                                                Text(version.lastModified.formatted())
+                                                    .fontWeight(version.isLatest ? .bold : .regular)
+                                                if !version.isDeleteMarker {
+                                                    Text(formatBytes(version.size))
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                } else {
+                                                    Text("Delete Marker")
+                                                        .font(.caption)
+                                                        .foregroundColor(.red)
+                                                }
+                                            }
+
+                                            Spacer()
+
+                                            if version.isLatest {
+                                                Text("Latest")
+                                                    .font(.caption2)
+                                                    .padding(4)
+                                                    .background(Color.green.opacity(0.1))
+                                                    .foregroundColor(.green)
+                                                    .cornerRadius(4)
+                                            }
+
+                                            if !version.isDeleteMarker {
+                                                Button {
+                                                    appState.downloadFile(
+                                                        key: version.key,
+                                                        versionId: version.versionId)
+                                                } label: {
+                                                    Image(systemName: "arrow.down.circle")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .navigationTitle("Versions")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showingVersions = false }
+                            }
+                        }
+                    }
+                    .presentationDetents([.medium, .large])
+                }
+                .sheet(isPresented: $showingSettings) {
+                    NavigationStack {
+                        SettingsView()
+                            .environmentObject(appState)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { showingSettings = false }
+                                }
+                            }
                     }
                 }
                 .sheet(item: $selectedItemForInfo) { object in

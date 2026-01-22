@@ -25,6 +25,13 @@ struct S3_VueApp: App {
                     .environmentObject(appState)
             }
         #endif
+
+        #if os(macOS)
+            Settings {
+                SettingsView()
+                    .environmentObject(appState)
+            }
+        #endif
     }
 }
 
@@ -76,6 +83,16 @@ struct S3Object: Identifiable, Hashable {
     // This is perfect.
 }
 
+struct S3Version: Identifiable, Hashable {
+    var id: String { versionId }
+    let key: String
+    let versionId: String
+    let isLatest: Bool
+    let lastModified: Date
+    let size: Int64
+    let isDeleteMarker: Bool
+}
+
 class S3Client {
     private let accessKey: String
     private let secretKey: String
@@ -103,11 +120,11 @@ class S3Client {
         // I need to be careful not to delete the body. I will use a precise TargetContent.
         // Custom encoding: URLQueryAllowed BUT encode slashes '/' as %2F and '@', ':', etc.
         // AWS requires strict encoding for query params in signature
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-_.~")  // Standard unreserved characters
+        let letAllowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_.~"))  // Standard unreserved characters
         // Do NOT include '/' or '@' or ':' in allowed, so they get percent-encoded
 
-        let encodedPrefix = prefix.addingPercentEncoding(withAllowedCharacters: allowed) ?? prefix
+        let encodedPrefix =
+            prefix.addingPercentEncoding(withAllowedCharacters: letAllowed) ?? prefix
 
         let urlString: String
         if !endpoint.isEmpty {
@@ -270,11 +287,11 @@ class S3Client {
         return (totalCount, totalSize)
     }
 
-    func generateDownloadURL(key: String) throws -> URL {
+    func generateDownloadURL(key: String, versionId: String? = nil) throws -> URL {
         // Percent encode key
         let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
 
-        let urlString: String
+        var urlString: String
         if !endpoint.isEmpty {
             var baseUrl = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
             if baseUrl.hasSuffix("/") { baseUrl = String(baseUrl.dropLast()) }
@@ -293,6 +310,10 @@ class S3Client {
         } else {
             let host = "\(bucket).s3.\(region).amazonaws.com"
             urlString = "https://\(host)/\(encodedKey)"
+        }
+
+        if let vId = versionId {
+            urlString += (urlString.contains("?") ? "&" : "?") + "versionId=\(vId)"
         }
 
         guard let url = URL(string: urlString) else {
@@ -402,6 +423,80 @@ class S3Client {
         }
     }
 
+    func listObjectVersions(key: String) async throws -> [S3Version] {
+        let url = try generateDownloadURL(key: "")  // Base URL
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "versions", value: nil),
+            URLQueryItem(name: "prefix", value: key),
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+            (200...299).contains(httpResponse.statusCode)
+        else {
+            throw S3Error.invalidResponse
+        }
+
+        let parser = S3VersionParser()
+        return parser.parse(data: data).filter { $0.key == key }
+    }
+
+    func getBucketVersioning() async throws -> Bool {
+        let url = try generateDownloadURL(key: "")
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "versioning", value: nil)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+            (200...299).contains(httpResponse.statusCode)
+        else {
+            throw S3Error.invalidResponse
+        }
+
+        let body = String(data: data, encoding: .utf8) ?? ""
+        return body.contains("<Status>Enabled</Status>")
+    }
+
+    func putBucketVersioning(enabled: Bool) async throws {
+        let url = try generateDownloadURL(key: "")
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "versioning", value: nil)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "PUT"
+
+        let status = enabled ? "Enabled" : "Suspended"
+        let xmlBody = """
+            <VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+              <Status>\(status)</Status>
+            </VersioningConfiguration>
+            """
+        let bodyData = xmlBody.data(using: .utf8)!
+
+        try signRequest(request: &request, payload: bodyData)
+        request.httpBody = bodyData
+        request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
+        request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+
+        guard let httpResponse = httpResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "<no body>"
+            throw S3Error.apiError(
+                httpResponse?.statusCode ?? 0, "Failed to update versioning: \(errorBody)")
+        }
+    }
+
     func renameFolderRecursive(oldPrefix: String, newPrefix: String) async throws {
         var allObjects: [S3Object] = []
         var token: String? = nil
@@ -499,15 +594,16 @@ class S3Client {
 
     // MARK: - Download
 
-    func fetchObjectData(key: String) async throws -> (Data, String) {
-        let url = try generateDownloadURL(key: key)
+    func fetchObjectData(key: String, versionId: String? = nil) async throws -> (Data, String) {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         try signRequest(request: &request, payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        var logs = "Download Key: \(key)\nURL: \(url.absoluteString)\n"
+        var logs =
+            "Download Key: \(key)\(versionId != nil ? " (Version: \(versionId!))" : "")\nURL: \(url.absoluteString)\n"
         if let httpResponse = response as? HTTPURLResponse {
             logs += "Status: \(httpResponse.statusCode)\n"
             if !(200...299).contains(httpResponse.statusCode) {
@@ -900,5 +996,95 @@ class S3XMLParser: NSObject, XMLParserDelegate {
                 }
             }
         }
+    }
+}
+
+class S3VersionParser: NSObject, XMLParserDelegate {
+    var versions: [S3Version] = []
+
+    private var currentElement = ""
+    private var currentKey = ""
+    private var currentVersionId = ""
+    private var currentIsLatest = false
+    private var currentLastModifiedString = ""
+    private var currentSize: Int64 = 0
+    private var inVersion = false
+    private var inDeleteMarker = false
+
+    func parse(data: Data) -> [S3Version] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return versions.sorted { $0.lastModified > $1.lastModified }
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        currentElement = elementName
+        if elementName == "Version" {
+            inVersion = true
+            currentKey = ""
+            currentVersionId = ""
+            currentIsLatest = false
+            currentLastModifiedString = ""
+            currentSize = 0
+        } else if elementName == "DeleteMarker" {
+            inDeleteMarker = true
+            currentKey = ""
+            currentVersionId = ""
+            currentIsLatest = false
+            currentLastModifiedString = ""
+            currentSize = 0
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if inVersion || inDeleteMarker {
+            if currentElement == "Key" {
+                currentKey += cleaned
+            } else if currentElement == "VersionId" {
+                currentVersionId += cleaned
+            } else if currentElement == "IsLatest" {
+                currentIsLatest = (cleaned.lowercased() == "true")
+            } else if currentElement == "LastModified" {
+                currentLastModifiedString += cleaned
+            } else if currentElement == "Size" {
+                if !cleaned.isEmpty {
+                    currentSize = Int64(cleaned) ?? currentSize
+                }
+            }
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "Version" || elementName == "DeleteMarker" {
+            let date = parseDate(currentLastModifiedString)
+            versions.append(
+                S3Version(
+                    key: currentKey,
+                    versionId: currentVersionId,
+                    isLatest: currentIsLatest,
+                    lastModified: date,
+                    size: currentSize,
+                    isDeleteMarker: (elementName == "DeleteMarker")
+                ))
+            inVersion = false
+            inDeleteMarker = false
+        }
+    }
+
+    private func parseDate(_ string: String) -> Date {
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: string) { return date }
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalFormatter.date(from: string) ?? Date()
     }
 }

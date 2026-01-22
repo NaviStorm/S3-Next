@@ -297,9 +297,93 @@
                                     .foregroundColor(.secondary)
                                 Text(selected.lastModified.formatted())
 
+                                Divider()
+
+                                Text("Version History")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                if appState.isVersionsLoading {
+                                    HStack {
+                                        ProgressView().controlSize(.small)
+                                        Text("Loading versions...").font(.caption).foregroundColor(
+                                            .secondary)
+                                    }
+                                } else if appState.selectedObjectVersions.isEmpty {
+                                    Text("No versions found").font(.caption).foregroundColor(
+                                        .secondary)
+                                } else {
+                                    ScrollView {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            ForEach(appState.selectedObjectVersions) { version in
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    HStack {
+                                                        Text(
+                                                            version.lastModified.formatted(
+                                                                date: .abbreviated, time: .shortened
+                                                            )
+                                                        )
+                                                        .font(.caption)
+                                                        .fontWeight(
+                                                            version.isLatest ? .bold : .regular)
+
+                                                        if version.isLatest {
+                                                            Text("Latest")
+                                                                .font(
+                                                                    .system(size: 8, weight: .bold)
+                                                                )
+                                                                .padding(.horizontal, 4)
+                                                                .padding(.vertical, 1)
+                                                                .background(
+                                                                    Color.green.opacity(0.2)
+                                                                )
+                                                                .foregroundColor(.green)
+                                                                .cornerRadius(4)
+                                                        }
+
+                                                        if version.isDeleteMarker {
+                                                            Image(systemName: "trash")
+                                                                .font(.caption2)
+                                                                .foregroundColor(.red)
+                                                        }
+
+                                                        Spacer()
+
+                                                        if !version.isDeleteMarker {
+                                                            Button(action: {
+                                                                appState.downloadFile(
+                                                                    key: version.key,
+                                                                    versionId: version.versionId)
+                                                            }) {
+                                                                Image(
+                                                                    systemName: "arrow.down.circle")
+                                                            }
+                                                            .buttonStyle(.plain)
+                                                        }
+                                                    }
+
+                                                    if !version.isDeleteMarker {
+                                                        Text(formatBytes(version.size))
+                                                            .font(.system(size: 9))
+                                                            .foregroundColor(.secondary)
+                                                    } else {
+                                                        Text("Delete Marker")
+                                                            .font(.system(size: 9))
+                                                            .foregroundColor(.red)
+                                                    }
+                                                }
+                                                .padding(4)
+                                                .background(Color.secondary.opacity(0.1))
+                                                .cornerRadius(4)
+                                            }
+                                        }
+                                    }
+                                    .frame(maxHeight: 200)
+                                }
+
                                 Spacer()
 
-                                Button("Download") {
+                                Button("Download Latest") {
                                     appState.downloadFile(key: selected.key)
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -342,6 +426,8 @@
                             folderStats = await appState.calculateFolderStats(
                                 folderKey: selected.key)
                             isStatsLoading = false
+                        } else {
+                            appState.loadVersions(for: selected.key)
                         }
                     }
                 }

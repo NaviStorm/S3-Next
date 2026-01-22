@@ -71,6 +71,11 @@ final class S3AppState: ObservableObject {
     @Published var objects: [S3Object] = []
     @Published var pendingDownloadURL: URL? = nil
 
+    // Versioning
+    @Published var selectedObjectVersions: [S3Version] = []
+    @Published var isVersionsLoading = false
+    @Published var isVersioningEnabled: Bool? = nil
+
     private func applySort() {
         // Keep ".." at top
         let parentItems = objects.filter { $0.key == ".." }
@@ -145,6 +150,7 @@ final class S3AppState: ObservableObject {
                 self.isLoading = false
                 self.saveConfig()
                 self.loadObjects()
+                self.refreshVersioningStatus()
             }
         } catch {
             DispatchQueue.main.async {
@@ -236,13 +242,14 @@ final class S3AppState: ObservableObject {
         loadObjects()
     }
 
-    func downloadFile(key: String) {
+    func downloadFile(key: String, versionId: String? = nil) {
         guard let client = client else { return }
         isLoading = true
-        log("[Download START] \(key)")
+        let logSuffix = versionId != nil ? " (Version: \(versionId!))" : ""
+        log("[Download START] \(key)\(logSuffix)")
         Task {
             do {
-                let (data, logs) = try await client.fetchObjectData(key: key)
+                let (data, logs) = try await client.fetchObjectData(key: key, versionId: versionId)
                 DispatchQueue.main.async {
                     self.log(logs)
                     self.log("[Download SUCCESS] Size: \(data.count) bytes")
@@ -255,6 +262,69 @@ final class S3AppState: ObservableObject {
                     self.errorMessage = "Download failed: \(error.localizedDescription)"
                     self.log("[Download ERROR] \(error.localizedDescription)")
                     self.isLoading = false
+                }
+            }
+        }
+    }
+
+    func refreshVersioningStatus() {
+        guard let client = client else { return }
+        Task {
+            do {
+                let status = try await client.getBucketVersioning()
+                DispatchQueue.main.async {
+                    self.isVersioningEnabled = status
+                    self.log("[Versioning] Status: \(status ? "Enabled" : "Disabled")")
+                }
+            } catch {
+                self.log("[Versioning] Failed to refresh status: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func toggleVersioning() {
+        guard let client = client, let current = isVersioningEnabled else { return }
+        let target = !current
+        isLoading = true
+
+        Task {
+            do {
+                try await client.putBucketVersioning(enabled: target)
+                DispatchQueue.main.async {
+                    self.isVersioningEnabled = target
+                    self.isLoading = false
+                    self.showToast("Versioning \(target ? "enabled" : "disabled")", type: .success)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.showToast(
+                        "Failed to update versioning: \(error.localizedDescription)", type: .error)
+                }
+            }
+        }
+    }
+
+    func loadVersions(for key: String) {
+        guard let client = client else { return }
+        isVersionsLoading = true
+        selectedObjectVersions = []
+
+        log("[Versions] Loading for: \(key)")
+        Task {
+            do {
+                let versions = try await client.listObjectVersions(key: key)
+                DispatchQueue.main.async {
+                    self.selectedObjectVersions = versions
+                    self.isVersionsLoading = false
+                    self.log("[Versions] Loaded \(versions.count) versions for \(key)")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isVersionsLoading = false
+                    self.log("[Versions] ERROR: \(error.localizedDescription)")
+                    self.showToast(
+                        "Failed to load versions: \(error.localizedDescription)", type: .error)
                 }
             }
         }
