@@ -389,7 +389,7 @@ class S3Client {
         request.httpMethod = "PUT"
 
         let bodyData = data ?? Data()
-        try signRequest(request: &request, payload: "")  // Assumes empty body hash if nil
+        try signRequest(request: &request, payload: bodyData)
         request.httpBody = bodyData
 
         request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
@@ -522,7 +522,7 @@ class S3Client {
 
     // MARK: - AWS Signature V4 Header
 
-    private func signRequest(request: inout URLRequest, payload: String) throws {
+    private func signRequest(request: inout URLRequest, payload: Any) throws {
         let date = Date()
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
@@ -648,7 +648,14 @@ class S3Client {
         request.setValue(amzDate, forHTTPHeaderField: "x-amz-date")
         request.setValue(host, forHTTPHeaderField: "host")
         // Content-SHA256 is required for S3
-        let payloadHash = sha256(payload)
+        let payloadHash: String
+        if let data = payload as? Data {
+            payloadHash = sha256(data)
+        } else if let str = payload as? String {
+            payloadHash = sha256(str.data(using: .utf8) ?? Data())
+        } else {
+            payloadHash = sha256(Data())
+        }
         request.setValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
 
         let canonicalHeaders =
@@ -671,7 +678,7 @@ class S3Client {
             \(algorithm)
             \(amzDate)
             \(credentialScope)
-            \(sha256(canonicalRequest))
+            \(sha256(canonicalRequest.data(using: .utf8)!))
             """
 
         // Debug Log (Print to console so we can see it in AppState debug log if we forward it,
@@ -702,8 +709,7 @@ class S3Client {
 
     // MARK: - Helpers
 
-    private func sha256(_ string: String) -> String {
-        guard let data = string.data(using: .utf8) else { return "" }
+    private func sha256(_ data: Data) -> String {
         var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
         data.withUnsafeBytes {
             _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash)

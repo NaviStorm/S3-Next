@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
         // Alert States
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
+        @State private var showingFileImporter = false
 
         @State private var showingRename = false
         @State private var renameItemKey = ""
@@ -170,6 +171,10 @@ import UniformTypeIdentifiers
                                 Image(systemName: "folder.badge.plus")
                             }
 
+                            Button(action: { showingFileImporter = true }) {
+                                Image(systemName: "arrow.up.doc")
+                            }
+
                             Button(action: {
                                 appState.disconnect()
                             }) {
@@ -199,6 +204,21 @@ import UniformTypeIdentifiers
                         }
                     }
                     Button("Cancel", role: .cancel) { renameItemName = "" }
+                }
+                .fileImporter(
+                    isPresented: $showingFileImporter,
+                    allowedContentTypes: [.data],
+                    allowsMultipleSelection: true
+                ) { result in
+                    switch result {
+                    case .success(let urls):
+                        for url in urls {
+                            appState.uploadFile(url: url)
+                        }
+                    case .failure(let error):
+                        appState.showToast(
+                            "File selection failed: \(error.localizedDescription)", type: .error)
+                    }
                 }
                 .alert("Delete", isPresented: $showingDelete) {
                     Button("Delete", role: .destructive) {
