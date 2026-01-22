@@ -53,9 +53,16 @@ struct TransferTaskRow: View {
             HStack {
                 Image(
                     systemName: task.type == .upload
-                        ? "arrow.up.circle.fill" : "arrow.down.circle.fill"
+                        ? "arrow.up.circle.fill"
+                        : task.type == .download
+                            ? "arrow.down.circle.fill"
+                            : task.type == .rename ? "pencil.circle.fill" : "trash.circle.fill"
                 )
-                .foregroundColor(task.type == .upload ? .blue : .green)
+                .foregroundColor(
+                    task.type == .upload
+                        ? .blue
+                        : task.type == .download ? .green : task.type == .rename ? .orange : .red
+                )
                 Text(task.name)
                     .fontWeight(.medium)
                 Spacer()

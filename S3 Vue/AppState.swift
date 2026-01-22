@@ -741,18 +741,46 @@ final class S3AppState: ObservableObject {
     func deleteFolder(key: String) {
         guard let client = client else { return }
         log("[DELETE] Folder Recursive: \(key)")
-        isLoading = true
+
+        let task = TransferTask(
+            type: .delete,
+            name: key,
+            progress: 0,
+            status: .inProgress,
+            totalFiles: 0,
+            completedFiles: 0
+        )
+        DispatchQueue.main.async { self.transferTasks.append(task) }
+
         Task {
             do {
-                try await client.deleteRecursive(prefix: key)
+                try await client.deleteRecursive(prefix: key) { completed, total in
+                    DispatchQueue.main.async {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                            self.transferTasks[index].totalFiles = total
+                            self.transferTasks[index].completedFiles = completed
+                            self.transferTasks[index].progress = Double(completed) / Double(total)
+                        }
+                    }
+                }
                 log("[DELETE SUCCESS] Recursive Folder: \(key)")
-                DispatchQueue.main.async { self.loadObjects() }
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                        self.transferTasks[index].status = .completed
+                        self.transferTasks[index].progress = 1.0
+                    }
+                    self.loadObjects()
+                    self.showToast("Dossier supprimé", type: .success)
+                }
             } catch {
                 log("[DELETE ERROR] Recursive Folder \(key): \(error.localizedDescription)")
                 DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                        self.transferTasks[index].status = .failed
+                        self.transferTasks[index].errorMessage = error.localizedDescription
+                    }
                     self.showToast(
                         "Delete Folder Failed: \(error.localizedDescription)", type: .error)
-                    self.isLoading = false
                 }
             }
         }
@@ -775,27 +803,71 @@ final class S3AppState: ObservableObject {
         var newKey = (parentPath + newName).precomposedStringWithCanonicalMapping
         if isFolder { newKey += "/" }
 
-        isLoading = true
-        Task {
-            do {
-                if isFolder {
-                    try await client.renameFolderRecursive(oldPrefix: oldKey, newPrefix: newKey)
-                } else {
+        if isFolder {
+            let task = TransferTask(
+                type: .rename,
+                name: "\(oldKey) -> \(newName)",
+                progress: 0,
+                status: .inProgress,
+                totalFiles: 0,
+                completedFiles: 0
+            )
+            DispatchQueue.main.async { self.transferTasks.append(task) }
+
+            Task {
+                do {
+                    try await client.renameFolderRecursive(oldPrefix: oldKey, newPrefix: newKey) {
+                        completed, total in
+                        DispatchQueue.main.async {
+                            if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }
+                            ) {
+                                self.transferTasks[index].totalFiles = total
+                                self.transferTasks[index].completedFiles = completed
+                                self.transferTasks[index].progress =
+                                    Double(completed) / Double(total)
+                            }
+                        }
+                    }
+                    log("Renamed folder \(oldKey) to \(newKey)")
+                    DispatchQueue.main.async {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                            self.transferTasks[index].status = .completed
+                            self.transferTasks[index].progress = 1.0
+                        }
+                        self.loadObjects()
+                        self.showToast("Dossier renommé avec succès", type: .success)
+                    }
+                } catch {
+                    log("[RENAME ERROR] \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == task.id }) {
+                            self.transferTasks[index].status = .failed
+                            self.transferTasks[index].errorMessage = error.localizedDescription
+                        }
+                        self.showToast(
+                            "Rename Folder Failed: \(error.localizedDescription)", type: .error)
+                    }
+                }
+            }
+        } else {
+            isLoading = true
+            Task {
+                do {
                     try await client.copyObject(sourceKey: oldKey, destinationKey: newKey)
                     try await client.deleteObject(key: oldKey)
+                    log("Renamed file \(oldKey) to \(newKey)")
+                    DispatchQueue.main.async {
+                        self.isLoading = false
+                        self.loadObjects()
+                        self.showToast("Fichier renommé avec succès", type: .success)
+                    }
+                } catch {
+                    log("[RENAME ERROR] \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.isLoading = false
+                        self.showToast("Rename Failed: \(error.localizedDescription)", type: .error)
+                    }
                 }
-
-                log("Renamed \(oldKey) to \(newKey)")
-                DispatchQueue.main.async {
-                    self.loadObjects()
-                    self.showToast("Objet renommé avec succès", type: .success)
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.isLoading = false
-                    self.showToast("Rename Failed: \(error.localizedDescription)", type: .error)
-                }
-                self.log("[RENAME ERROR] \(error.localizedDescription)")
             }
         }
     }

@@ -4,6 +4,8 @@ import SwiftUI
 enum TransferType: String, Codable {
     case upload
     case download
+    case rename
+    case delete
 }
 
 enum TransferStatus: String, Codable {

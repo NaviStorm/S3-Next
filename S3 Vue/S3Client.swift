@@ -209,11 +209,18 @@ class S3Client {
         }
     }
 
-    func deleteRecursive(prefix: String) async throws {
+    func deleteRecursive(prefix: String, onProgress: (@Sendable (Int, Int) -> Void)? = nil)
+        async throws
+    {
         let allObjectsToDelete = try await listAllObjects(prefix: prefix)
         // Sort by key length descending to delete children before parents
         let sortedObjects = allObjectsToDelete.sorted { $0.key.count > $1.key.count }
-        for obj in sortedObjects { try await deleteObject(key: obj.key) }
+        var count = 0
+        for obj in sortedObjects {
+            try await deleteObject(key: obj.key)
+            count += 1
+            onProgress?(count, sortedObjects.count)
+        }
 
         // Also ensure the prefix itself is deleted if it was returned by listAllObjects
         // or if it's a folder object not returned.
@@ -375,9 +382,12 @@ class S3Client {
         }
     }
 
-    func renameFolderRecursive(oldPrefix: String, newPrefix: String) async throws {
+    func renameFolderRecursive(
+        oldPrefix: String, newPrefix: String, onProgress: (@Sendable (Int, Int) -> Void)? = nil
+    ) async throws {
         let allObjects = try await listAllObjects(prefix: oldPrefix)
         let sortedObjects = allObjects.sorted { $0.key.count > $1.key.count }
+        var count = 0
         for obj in sortedObjects {
             let oldKey = obj.key
             if oldKey.hasPrefix(oldPrefix) {
@@ -385,6 +395,8 @@ class S3Client {
                 let newKey = newPrefix + suffix
                 try await copyObject(sourceKey: oldKey, destinationKey: newKey)
                 try await deleteObject(key: oldKey)
+                count += 1
+                onProgress?(count, sortedObjects.count)
             }
         }
     }
