@@ -69,6 +69,7 @@ final class S3AppState: ObservableObject {
     // Data
     @Published var currentPath: [String] = []  // Navigation stack (folders)
     @Published var objects: [S3Object] = []
+    @Published var pendingDownloadURL: URL? = nil
 
     private func applySort() {
         // Keep ".." at top
@@ -439,12 +440,14 @@ final class S3AppState: ObservableObject {
                 }
             }
         #else
-            // iOS Fallback: Save to Documents/Temporary and log (Sharing would be handled by View)
+            // iOS: Save to temporary and trigger share
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
             do {
                 try data.write(to: tempURL)
-                log("[iOS] Saved to temporary file: \(tempURL.absoluteString)")
-                // Ideally, you would trigger a Share Sheet via a Published property here
+                log("[iOS] Ready to share: \(tempURL.lastPathComponent)")
+                DispatchQueue.main.async {
+                    self.pendingDownloadURL = tempURL
+                }
             } catch {
                 log("[iOS] Failed to save file: \(error.localizedDescription)")
             }

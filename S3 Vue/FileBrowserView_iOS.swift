@@ -230,14 +230,19 @@ import UniformTypeIdentifiers
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    if deleteIsFolder {
-                        Text(
-                            "Are you sure you want to delete this folder? ALL contents will be permanently deleted."
-                        )
-                    } else {
-                        Text(
-                            "Are you sure you want to delete this item? This action cannot be undone."
-                        )
+                    Text(
+                        deleteIsFolder
+                            ? "Are you sure you want to delete this folder and all its contents?"
+                            : "Are you sure you want to delete this file?")
+                }
+                .sheet(
+                    isPresented: Binding(
+                        get: { appState.pendingDownloadURL != nil },
+                        set: { if !$0 { appState.pendingDownloadURL = nil } }
+                    )
+                ) {
+                    if let url = appState.pendingDownloadURL {
+                        ActivityView(activityItems: [url])
                     }
                 }
                 .sheet(item: $selectedItemForInfo) { object in
@@ -311,5 +316,18 @@ import UniformTypeIdentifiers
             formatter.countStyle = .file
             return formatter.string(fromByteCount: bytes)
         }
+    }
+
+    struct ActivityView: UIViewControllerRepresentable {
+        let activityItems: [Any]
+        let applicationActivities: [UIActivity]? = nil
+
+        func makeUIViewController(context: Context) -> UIActivityViewController {
+            UIActivityViewController(
+                activityItems: activityItems, applicationActivities: applicationActivities)
+        }
+
+        func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context)
+        {}
     }
 #endif
