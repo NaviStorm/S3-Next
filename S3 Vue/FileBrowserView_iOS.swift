@@ -132,6 +132,24 @@ import UniformTypeIdentifiers
                                                     "Versions",
                                                     systemImage: "clock.arrow.circlepath")
                                             }
+
+                                            Menu {
+                                                Button(action: {
+                                                    appState.copyPresignedURL(
+                                                        for: object.key, expires: 3600)
+                                                }) {
+                                                    Label("Valide 1 heure", systemImage: "timer")
+                                                }
+                                                Button(action: {
+                                                    appState.copyPresignedURL(
+                                                        for: object.key, expires: 86400)
+                                                }) {
+                                                    Label(
+                                                        "Valide 24 heures", systemImage: "calendar")
+                                                }
+                                            } label: {
+                                                Label("Lien de partage", systemImage: "link")
+                                            }
                                         }
 
                                         Button(
@@ -155,55 +173,7 @@ import UniformTypeIdentifiers
                 }
                 .navigationTitle(appState.currentPath.last ?? appState.bucket)
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        if !appState.currentPath.isEmpty {
-                            Button(action: {
-                                appState.navigateBack()
-                            }) {
-                                Image(systemName: "chevron.left")
-                                Text("Retour")
-                            }
-                        }
-                    }
-
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        HStack {
-                            Menu {
-                                Picker("Trier par", selection: $appState.sortOption) {
-                                    ForEach(S3AppState.SortOption.allCases) { option in
-                                        Text(
-                                            option == .name
-                                                ? "Nom" : (option == .date ? "Date" : "Taille")
-                                        ).tag(option)
-                                    }
-                                }
-                                Divider()
-                                Toggle("Ascendant", isOn: $appState.sortAscending)
-                            } label: {
-                                Image(systemName: "arrow.up.arrow.down")
-                            }
-
-                            Button(action: { showingCreateFolder = true }) {
-                                Image(systemName: "folder.badge.plus")
-                            }
-
-                            Button(action: { showingSettings = true }) {
-                                Image(systemName: "gear")
-                            }
-
-                            Button(action: { showingFileImporter = true }) {
-                                Image(systemName: "arrow.up.doc")
-                            }
-
-                            Button(action: {
-                                appState.disconnect()
-                            }) {
-                                Image(systemName: "rectangle.portrait.and.arrow.right")
-                            }
-                        }
-                    }
-                }
+                .toolbar { toolbarContent }
                 .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
                     TextField("Nom du dossier", text: $newFolderName)
                     Button("Créer") {
@@ -311,6 +281,28 @@ import UniformTypeIdentifiers
                                             }
                                         }
                                     }
+
+                                    Divider()
+
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Partage temporaire")
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+
+                                        HStack {
+                                            Button("Lien 1h") {
+                                                appState.copyPresignedURL(
+                                                    for: version.key, expires: 3600)
+                                            }
+                                            .buttonStyle(.bordered)
+
+                                            Button("Lien 24h") {
+                                                appState.copyPresignedURL(
+                                                    for: version.key, expires: 86400)
+                                            }
+                                            .buttonStyle(.bordered)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -336,81 +328,159 @@ import UniformTypeIdentifiers
                     }
                 }
                 .sheet(item: $selectedItemForInfo) { object in
-                    NavigationStack {
-                        List {
-                            Section("Propriétés") {
-                                LabeledContent("Nom", value: displayName(for: object.key))
-                                LabeledContent("Clé", value: object.key)
-                                if !object.isFolder {
-                                    LabeledContent("Taille", value: formatBytes(object.size))
-                                    LabeledContent(
-                                        "Dernière modification",
-                                        value: object.lastModified.formatted())
+                    infoSheet(for: object)
+                }
+            }
+        }
 
-                                    Divider()
+        @ToolbarContentBuilder
+        private var toolbarContent: some ToolbarContent {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !appState.currentPath.isEmpty {
+                    Button(action: {
+                        appState.navigateBack()
+                    }) {
+                        Image(systemName: "chevron.left")
+                        Text("Retour")
+                    }
+                }
+            }
 
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack {
+                    Menu {
+                        Picker("Trier par", selection: $appState.sortOption) {
+                            ForEach(S3AppState.SortOption.allCases) { option in
+                                Text(
+                                    option == .name
+                                        ? "Nom" : (option == .date ? "Date" : "Taille")
+                                ).tag(option)
+                            }
+                        }
+                        Divider()
+                        Toggle("Ascendant", isOn: $appState.sortAscending)
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+
+                    Button(action: { showingCreateFolder = true }) {
+                        Image(systemName: "folder.badge.plus")
+                    }
+
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gear")
+                    }
+
+                    Button(action: { showingFileImporter = true }) {
+                        Image(systemName: "arrow.up.doc")
+                    }
+
+                    Button(action: {
+                        appState.disconnect()
+                    }) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+            }
+        }
+
+        @ViewBuilder
+        private func infoSheet(for object: S3Object) -> some View {
+            NavigationStack {
+                List {
+                    Section("Propriétés") {
+                        LabeledContent("Nom", value: displayName(for: object.key))
+                        LabeledContent("Clé", value: object.key)
+                        if !object.isFolder {
+                            LabeledContent("Taille", value: formatBytes(object.size))
+                            LabeledContent(
+                                "Dernière modification",
+                                value: object.lastModified.formatted())
+
+                            Divider()
+
+                            HStack {
+                                Text("Accès")
+                                Spacer()
+                                if appState.isACLLoading {
+                                    ProgressView()
+                                } else if let isPublic = appState.selectedObjectIsPublic {
                                     HStack {
-                                        Text("Accès")
-                                        Spacer()
-                                        if appState.isACLLoading {
-                                            ProgressView()
-                                        } else if let isPublic = appState.selectedObjectIsPublic {
-                                            HStack {
-                                                Image(systemName: isPublic ? "globe" : "lock.fill")
-                                                    .foregroundColor(isPublic ? .green : .secondary)
-                                                Text(isPublic ? "Public" : "Privé")
+                                        Image(systemName: isPublic ? "globe" : "lock.fill")
+                                            .foregroundColor(isPublic ? .green : .secondary)
+                                        Text(isPublic ? "Public" : "Privé")
 
-                                                Button(action: {
-                                                    appState.togglePublicAccess(for: object.key)
-                                                }) {
-                                                    Text("Modifier")
-                                                        .font(.caption)
-                                                        .padding(.horizontal, 8)
-                                                        .padding(.vertical, 4)
-                                                        .background(Color.blue.opacity(0.1))
-                                                        .cornerRadius(8)
-                                                }
-                                            }
+                                        Button(action: {
+                                            appState.togglePublicAccess(for: object.key)
+                                        }) {
+                                            Text("Modifier")
+                                                .font(.caption)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Color.blue.opacity(0.1))
+                                                .cornerRadius(8)
                                         }
-                                    }
-                                } else {
-                                    LabeledContent("Type", value: "Dossier")
-                                    if isInfoStatsLoading {
-                                        HStack {
-                                            Text("Calcul des stats...")
-                                                .foregroundColor(.secondary)
-                                            ProgressView()
-                                        }
-                                    } else if let stats = infoFolderStats {
-                                        LabeledContent("Objets", value: "\(stats.count)")
-                                        LabeledContent(
-                                            "Taille totale", value: formatBytes(stats.size))
                                     }
                                 }
                             }
-                        }
-                        .navigationTitle("Détails")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Terminé") { selectedItemForInfo = nil }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Partage temporaire")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+
+                                HStack {
+                                    Button("Lien 1h") {
+                                        appState.copyPresignedURL(
+                                            for: object.key, expires: 3600)
+                                    }
+                                    .buttonStyle(.bordered)
+
+                                    Button("Lien 24h") {
+                                        appState.copyPresignedURL(
+                                            for: object.key, expires: 86400)
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
                             }
-                        }
-                        .task {
-                            if object.isFolder {
-                                isInfoStatsLoading = true
-                                infoFolderStats = nil
-                                infoFolderStats = await appState.calculateFolderStats(
-                                    folderKey: object.key)
-                                isInfoStatsLoading = false
-                            } else {
-                                appState.loadACL(for: object.key)
+                        } else {
+                            LabeledContent("Type", value: "Dossier")
+                            if isInfoStatsLoading {
+                                HStack {
+                                    Text("Calcul des stats...")
+                                        .foregroundColor(.secondary)
+                                    ProgressView()
+                                }
+                            } else if let stats = infoFolderStats {
+                                LabeledContent("Objets", value: "\(stats.count)")
+                                LabeledContent(
+                                    "Taille totale", value: formatBytes(stats.size))
                             }
                         }
                     }
-                    .presentationDetents([.medium, .large])
+                }
+                .navigationTitle("Détails")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Terminé") { selectedItemForInfo = nil }
+                    }
+                }
+                .task {
+                    if object.isFolder {
+                        isInfoStatsLoading = true
+                        infoFolderStats = nil
+                        infoFolderStats = await appState.calculateFolderStats(
+                            folderKey: object.key)
+                        isInfoStatsLoading = false
+                    } else {
+                        appState.loadACL(for: object.key)
+                    }
                 }
             }
+            .presentationDetents([.medium, .large])
         }
 
         func displayName(for key: String) -> String {

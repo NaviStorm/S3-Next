@@ -201,14 +201,25 @@
                                         }
 
                                         if !object.isFolder {
-                                            Button("Download") {
+                                            Button("Télécharger") {
                                                 appState.downloadFile(key: object.key)
+                                            }
+
+                                            Menu("Copier le lien de partage") {
+                                                Button("Valide 1 heure") {
+                                                    appState.copyPresignedURL(
+                                                        for: object.key, expires: 3600)
+                                                }
+                                                Button("Valide 24 heures") {
+                                                    appState.copyPresignedURL(
+                                                        for: object.key, expires: 86400)
+                                                }
                                             }
                                         }
 
                                         Divider()
 
-                                        Button("Delete", role: .destructive) {
+                                        Button("Supprimer", role: .destructive) {
                                             deleteItemKey = object.key
                                             deleteIsFolder = object.isFolder
                                             // Ensure selection so user sees what they delete
@@ -420,6 +431,24 @@
                                         }
                                     }
                                     .frame(maxHeight: 200)
+                                }
+
+                                Divider()
+
+                                Text("Partage temporaire")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                HStack {
+                                    Button("Lien 1h") {
+                                        appState.copyPresignedURL(for: selected.key, expires: 3600)
+                                    }
+                                    .buttonStyle(.bordered)
+
+                                    Button("Lien 24h") {
+                                        appState.copyPresignedURL(for: selected.key, expires: 86400)
+                                    }
+                                    .buttonStyle(.bordered)
                                 }
 
                                 Spacer()

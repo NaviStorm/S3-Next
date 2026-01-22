@@ -287,6 +287,109 @@ class S3Client {
         return (totalCount, totalSize)
     }
 
+    func generatePresignedURL(key: String, expirationSeconds: Int) throws -> URL {
+        let date = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        let amzDate = dateFormatter.string(from: date)
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let datestamp = dateFormatter.string(from: date)
+
+        // AWS V4 strictly requires [A-Za-z0-9.~_-] not to be encoded.
+        let awsQueryEncode = { (s: String) -> String in
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-._~")
+            return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+        }
+
+        // 1. Path & Host calculation
+        let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+        var host: String
+        var canonicalUri: String
+
+        if !endpoint.isEmpty {
+            let base = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+            guard let url = URL(string: base), let baseHost = url.host else {
+                throw S3Error.invalidUrl
+            }
+
+            if usePathStyle {
+                host = baseHost
+                canonicalUri = "/\(bucket)/\(encodedKey)"
+            } else {
+                host = "\(bucket).\(baseHost)"
+                canonicalUri = "/\(encodedKey)"
+            }
+        } else {
+            host = "\(bucket).s3.\(region).amazonaws.com"
+            canonicalUri = "/\(encodedKey)"
+        }
+
+        // Ensure canonicalUri begins with / and has no double slashes
+        if !canonicalUri.hasPrefix("/") { canonicalUri = "/" + canonicalUri }
+        canonicalUri = canonicalUri.replacingOccurrences(of: "//", with: "/")
+
+        // 2. Query Parameters for Signature
+        let credentialScope = "\(datestamp)/\(region)/s3/aws4_request"
+        var queryItems = [
+            URLQueryItem(name: "X-Amz-Algorithm", value: "AWS4-HMAC-SHA256"),
+            URLQueryItem(name: "X-Amz-Credential", value: "\(accessKey)/\(credentialScope)"),
+            URLQueryItem(name: "X-Amz-Date", value: amzDate),
+            URLQueryItem(name: "X-Amz-Expires", value: "\(expirationSeconds)"),
+            URLQueryItem(name: "X-Amz-SignedHeaders", value: "host"),
+        ]
+
+        // 3. Canonical Request
+        let sortedQueryItems = queryItems.sorted { $0.name < $1.name }
+        let canonicalQueryString = sortedQueryItems.map {
+            "\(awsQueryEncode($0.name))=\(awsQueryEncode($0.value ?? ""))"
+        }.joined(separator: "&")
+
+        let canonicalHeaders = "host:\(host)\n"
+        let signedHeaders = "host"
+        let payloadHash = "UNSIGNED-PAYLOAD"
+
+        let canonicalRequest =
+            "GET\n\(canonicalUri)\n\(canonicalQueryString)\n\(canonicalHeaders)\n\(signedHeaders)\n\(payloadHash)"
+
+        // 4. String to Sign
+        let algorithm = "AWS4-HMAC-SHA256"
+        let stringToSign =
+            "\(algorithm)\n\(amzDate)\n\(credentialScope)\n\(sha256(canonicalRequest.data(using: .utf8)!))"
+
+        // 5. Signature
+        let kDate = hmac(key: "AWS4\(secretKey)".data(using: .utf8)!, data: datestamp)
+        let kRegion = hmac(key: kDate, data: region)
+        let kService = hmac(key: kRegion, data: "s3")
+        let kSigning = hmac(key: kService, data: "aws4_request")
+        let signature = hmac(key: kSigning, data: stringToSign).map { String(format: "%02x", $0) }
+            .joined()
+
+        // 6. Final URL Construction
+        var finalQueryItems = queryItems
+        finalQueryItems.append(URLQueryItem(name: "X-Amz-Signature", value: signature))
+
+        var components = URLComponents()
+        if !endpoint.isEmpty {
+            let base = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+            if let baseUri = URL(string: base) {
+                components.scheme = baseUri.scheme
+                components.host = host
+                components.port = baseUri.port
+            }
+        } else {
+            components.scheme = "https"
+            components.host = host
+        }
+
+        components.path = canonicalUri
+        components.queryItems = finalQueryItems
+
+        guard let finalUrl = components.url else { throw S3Error.invalidUrl }
+        return finalUrl
+    }
+
     func generateDownloadURL(key: String, versionId: String? = nil) throws -> URL {
         // Percent encode key
         let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key

@@ -575,4 +575,28 @@ final class S3AppState: ObservableObject {
             }
         #endif
     }
+
+    func copyPresignedURL(for key: String, expires: Int) {
+        guard let client = client else { return }
+        do {
+            let url = try client.generatePresignedURL(key: key, expirationSeconds: expires)
+            let urlString = url.absoluteString
+
+            #if os(macOS)
+                let pasteboard = NSPasteboard.general
+                pasteboard.declareTypes([.string], owner: nil)
+                pasteboard.setString(urlString, forType: .string)
+            #else
+                UIPasteboard.general.string = urlString
+            #endif
+
+            let hours = expires / 3600
+            showToast("Lien de partage (\(hours)h) copié !", type: .success)
+            log("Presigned URL copied for \(key) (expires in \(hours)h)")
+        } catch {
+            showToast(
+                "Échec de la génération du lien : \(error.localizedDescription)", type: .error)
+            log("[Presigned URL] ERROR: \(error.localizedDescription)")
+        }
+    }
 }
