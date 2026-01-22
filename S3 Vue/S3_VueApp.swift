@@ -446,6 +446,51 @@ class S3Client {
         return parser.parse(data: data).filter { $0.key == key }
     }
 
+    func getObjectACL(key: String) async throws -> Bool {
+        let url = try generateDownloadURL(key: key)
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "acl", value: nil)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+            (200...299).contains(httpResponse.statusCode)
+        else {
+            throw S3Error.invalidResponse
+        }
+
+        let body = String(data: data, encoding: .utf8) ?? ""
+        // Check for "AllUsers" group with READ permission
+        return body.contains("uri=\"http://acs.amazonaws.com/groups/global/AllUsers\"")
+            && body.contains("<Permission>READ</Permission>")
+    }
+
+    func setObjectACL(key: String, isPublic: Bool) async throws {
+        let url = try generateDownloadURL(key: key)
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "acl", value: nil)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "PUT"
+
+        // Use canned ACL for simplicity
+        request.setValue(isPublic ? "public-read" : "private", forHTTPHeaderField: "x-amz-acl")
+
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+
+        guard let httpResponse = httpResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "<no body>"
+            throw S3Error.apiError(
+                httpResponse?.statusCode ?? 0, "Failed to update ACL: \(errorBody)")
+        }
+    }
+
     func getBucketVersioning() async throws -> Bool {
         let url = try generateDownloadURL(key: "")
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!

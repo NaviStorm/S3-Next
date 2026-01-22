@@ -341,6 +341,33 @@ import UniformTypeIdentifiers
                                     LabeledContent("Size", value: formatBytes(object.size))
                                     LabeledContent(
                                         "Last Modified", value: object.lastModified.formatted())
+
+                                    Divider()
+
+                                    HStack {
+                                        Text("Access")
+                                        Spacer()
+                                        if appState.isACLLoading {
+                                            ProgressView()
+                                        } else if let isPublic = appState.selectedObjectIsPublic {
+                                            HStack {
+                                                Image(systemName: isPublic ? "globe" : "lock.fill")
+                                                    .foregroundColor(isPublic ? .green : .secondary)
+                                                Text(isPublic ? "Public" : "Private")
+
+                                                Button(action: {
+                                                    appState.togglePublicAccess(for: object.key)
+                                                }) {
+                                                    Text("Change")
+                                                        .font(.caption)
+                                                        .padding(.horizontal, 8)
+                                                        .padding(.vertical, 4)
+                                                        .background(Color.blue.opacity(0.1))
+                                                        .cornerRadius(8)
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else {
                                     LabeledContent("Type", value: "Folder")
                                     if isInfoStatsLoading {
@@ -370,6 +397,8 @@ import UniformTypeIdentifiers
                                 infoFolderStats = await appState.calculateFolderStats(
                                     folderKey: object.key)
                                 isInfoStatsLoading = false
+                            } else {
+                                appState.loadACL(for: object.key)
                             }
                         }
                     }

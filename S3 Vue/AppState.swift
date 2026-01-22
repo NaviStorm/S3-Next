@@ -75,6 +75,8 @@ final class S3AppState: ObservableObject {
     @Published var selectedObjectVersions: [S3Version] = []
     @Published var isVersionsLoading = false
     @Published var isVersioningEnabled: Bool? = nil
+    @Published var selectedObjectIsPublic: Bool? = nil
+    @Published var isACLLoading = false
 
     private func applySort() {
         // Keep ".." at top
@@ -267,6 +269,50 @@ final class S3AppState: ObservableObject {
         }
     }
 
+    func loadACL(for key: String) {
+        guard let client = client else { return }
+        isACLLoading = true
+        selectedObjectIsPublic = nil
+
+        Task {
+            do {
+                let isPublic = try await client.getObjectACL(key: key)
+                DispatchQueue.main.async {
+                    self.selectedObjectIsPublic = isPublic
+                    self.isACLLoading = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isACLLoading = false
+                    self.log("[ACL] Failed to load ACL: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func togglePublicAccess(for key: String) {
+        guard let client = client, let current = selectedObjectIsPublic else { return }
+        let target = !current
+        isACLLoading = true
+
+        Task {
+            do {
+                try await client.setObjectACL(key: key, isPublic: target)
+                DispatchQueue.main.async {
+                    self.selectedObjectIsPublic = target
+                    self.isACLLoading = false
+                    self.showToast("File is now \(target ? "Public" : "Private")", type: .success)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isACLLoading = false
+                    self.showToast(
+                        "Failed to update permissions: \(error.localizedDescription)", type: .error)
+                }
+            }
+        }
+    }
+
     func refreshVersioningStatus() {
         guard let client = client else { return }
         Task {
@@ -309,6 +355,9 @@ final class S3AppState: ObservableObject {
         guard let client = client else { return }
         isVersionsLoading = true
         selectedObjectVersions = []
+
+        // Also load ACL when loading versions (since it depends on the same selection)
+        loadACL(for: key)
 
         log("[Versions] Loading for: \(key)")
         Task {

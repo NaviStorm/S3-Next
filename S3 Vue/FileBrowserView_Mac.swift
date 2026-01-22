@@ -299,6 +299,43 @@
 
                                 Divider()
 
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Permissions")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    if appState.isACLLoading {
+                                        HStack {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                            Text("Loading ACL...")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    } else if let isPublic = appState.selectedObjectIsPublic {
+                                        HStack {
+                                            Image(systemName: isPublic ? "globe" : "lock.fill")
+                                                .foregroundColor(isPublic ? .green : .secondary)
+                                            Text(isPublic ? "Public" : "Private")
+                                                .font(.subheadline)
+
+                                            Spacer()
+
+                                            Button(isPublic ? "Make Private" : "Make Public") {
+                                                appState.togglePublicAccess(for: selected.key)
+                                            }
+                                            .buttonStyle(.link)
+                                            .font(.caption)
+                                        }
+                                    } else {
+                                        Text("Could not load ACL")
+                                            .font(.caption)
+                                            .foregroundColor(.red)
+                                    }
+                                }
+
+                                Divider()
+
                                 Text("Version History")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
