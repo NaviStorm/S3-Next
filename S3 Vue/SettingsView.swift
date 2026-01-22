@@ -5,18 +5,18 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Bucket Configuration") {
-                LabeledContent("Bucket Name", value: appState.bucket)
-                LabeledContent("Region", value: appState.region)
+            Section("Configuration du Bucket") {
+                LabeledContent("Nom du Bucket", value: appState.bucket)
+                LabeledContent("Région", value: appState.region)
                 LabeledContent("Endpoint", value: appState.endpoint)
             }
 
             Section {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("S3 Versioning")
+                        Text("Versioning S3")
                             .font(.headline)
-                        Text("Manage object versions for this bucket.")
+                        Text("Gérer les versions des objets pour ce bucket.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -40,15 +40,15 @@ struct SettingsView: View {
                 }
 
                 if appState.isVersioningEnabled == nil {
-                    Text("Could not determine versioning status.")
+                    Text("Impossible de déterminer le statut du versioning.")
                         .font(.caption)
                         .foregroundColor(.red)
                 }
             } header: {
-                Text("Management")
+                Text("Gestion")
             } footer: {
                 Text(
-                    "Enabling versioning allows you to preserve, retrieve, and restore every version of every object stored in your bucket."
+                    "L'activation du versioning vous permet de préserver, récupérer et restaurer chaque version de chaque objet stocké dans votre bucket."
                 )
             }
         }
@@ -57,7 +57,7 @@ struct SettingsView: View {
         #if os(macOS)
             .frame(width: 450, height: 350)
         #endif
-        .navigationTitle("Settings")
+        .navigationTitle("Réglages")
         .task {
             appState.refreshVersioningStatus()
         }

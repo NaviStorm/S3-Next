@@ -261,7 +261,7 @@ final class S3AppState: ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.errorMessage = "Download failed: \(error.localizedDescription)"
+                    self.errorMessage = "Le téléchargement a échoué : \(error.localizedDescription)"
                     self.log("[Download ERROR] \(error.localizedDescription)")
                     self.isLoading = false
                 }
@@ -339,13 +339,14 @@ final class S3AppState: ObservableObject {
                 DispatchQueue.main.async {
                     self.isVersioningEnabled = target
                     self.isLoading = false
-                    self.showToast("Versioning \(target ? "enabled" : "disabled")", type: .success)
+                    self.showToast("Versioning \(target ? "activé" : "désactivé")", type: .success)
                 }
             } catch {
                 DispatchQueue.main.async {
                     self.isLoading = false
                     self.showToast(
-                        "Failed to update versioning: \(error.localizedDescription)", type: .error)
+                        "Échec de la mise à jour du versioning : \(error.localizedDescription)",
+                        type: .error)
                 }
             }
         }
@@ -373,7 +374,8 @@ final class S3AppState: ObservableObject {
                     self.isVersionsLoading = false
                     self.log("[Versions] ERROR: \(error.localizedDescription)")
                     self.showToast(
-                        "Failed to load versions: \(error.localizedDescription)", type: .error)
+                        "Échec du chargement des versions : \(error.localizedDescription)",
+                        type: .error)
                 }
             }
         }
@@ -396,7 +398,7 @@ final class S3AppState: ObservableObject {
             } catch {
                 DispatchQueue.main.async {
                     self.showToast(
-                        "Create Folder Failed: \(error.localizedDescription)", type: .error)
+                        "Création du dossier échouée : \(error.localizedDescription)", type: .error)
                     self.isLoading = false
                 }
             }
@@ -432,7 +434,8 @@ final class S3AppState: ObservableObject {
                 }
             }
         } catch {
-            self.showToast("Failed to read file: \(error.localizedDescription)", type: .error)
+            self.showToast(
+                "Échec de la lecture du fichier : \(error.localizedDescription)", type: .error)
             log("[Upload ERROR] Read failed: \(error.localizedDescription)")
         }
     }

@@ -13,14 +13,14 @@ struct S3_VueApp: App {
         }
         #if os(macOS)
             .commands {
-                CommandMenu("Debug") {
+                CommandMenu("Débogage") {
                     OpenDebugWindowButton()
                 }
             }
         #endif
 
         #if os(macOS)
-            Window("Debug Logs", id: "debug-logs") {
+            Window("Logs de débogage", id: "debug-logs") {
                 DebugView()
                     .environmentObject(appState)
             }
@@ -40,7 +40,7 @@ struct S3_VueApp: App {
         @Environment(\.openWindow) var openWindow
 
         var body: some View {
-            Button("Show Debug Logs") {
+            Button("Afficher les logs de débogage") {
                 openWindow(id: "debug-logs")
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
@@ -56,11 +56,11 @@ enum S3Error: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidUrl: return "Invalid URL configuration."
+        case .invalidUrl: return "Configuration d'URL invalide."
         case .requestFailed(let error):
-            return "Network request failed: \(error.localizedDescription)"
-        case .invalidResponse: return "Invalid server response."
-        case .apiError(let statusCode, let body): return "API Error \(statusCode): \(body)"
+            return "La requête réseau a échoué : \(error.localizedDescription)"
+        case .invalidResponse: return "Réponse du serveur invalide."
+        case .apiError(let statusCode, let body): return "Erreur API \(statusCode) : \(body)"
         }
     }
 }

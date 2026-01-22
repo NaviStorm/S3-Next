@@ -62,13 +62,16 @@
                         }
 
                         Menu {
-                            Picker("Sort By", selection: $appState.sortOption) {
+                            Picker("Trier par", selection: $appState.sortOption) {
                                 ForEach(S3AppState.SortOption.allCases) { option in
-                                    Text(option.rawValue).tag(option)
+                                    Text(
+                                        option == .name
+                                            ? "Nom" : (option == .date ? "Date" : "Taille")
+                                    ).tag(option)
                                 }
                             }
                             Divider()
-                            Toggle("Ascending", isOn: $appState.sortAscending)
+                            Toggle("Ascendant", isOn: $appState.sortAscending)
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
                         }
@@ -80,32 +83,32 @@
                         Button(action: { showingCreateFolder = true }) {
                             Image(systemName: "folder.badge.plus")
                         }
-                        .help("New Folder")
+                        .help("Nouveau Dossier")
 
                         Button(action: { showingFileImporter = true }) {
                             Image(systemName: "arrow.up.doc")
                         }
-                        .help("Upload Files")
+                        .help("Téléverser des fichiers")
 
-                        Button("Logout") {
+                        Button("Déconnexion") {
                             appState.disconnect()
                         }
                     }
                     .padding(8)
                     .background(Color(NSColor.controlBackgroundColor))
-                    .alert("New Folder", isPresented: $showingCreateFolder) {
-                        TextField("Folder Name", text: $newFolderName)
-                        Button("Create") {
+                    .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
+                        TextField("Nom du dossier", text: $newFolderName)
+                        Button("Créer") {
                             if !newFolderName.isEmpty {
                                 appState.createFolder(name: newFolderName)
                                 newFolderName = ""
                             }
                         }
-                        Button("Cancel", role: .cancel) { newFolderName = "" }
+                        Button("Annuler", role: .cancel) { newFolderName = "" }
                     }
-                    .alert("Rename", isPresented: $showingRename) {
-                        TextField("New Name", text: $renameItemName)
-                        Button("Rename") {
+                    .alert("Renommer", isPresented: $showingRename) {
+                        TextField("Nouveau Nom", text: $renameItemName)
+                        Button("Renommer") {
                             if !renameItemName.isEmpty {
                                 appState.renameObject(
                                     oldKey: renameItemKey, newName: renameItemName,
@@ -113,7 +116,7 @@
                                 renameItemName = ""
                             }
                         }
-                        Button("Cancel", role: .cancel) { renameItemName = "" }
+                        Button("Annuler", role: .cancel) { renameItemName = "" }
                     }
                     .fileImporter(
                         isPresented: $showingFileImporter,
@@ -143,23 +146,23 @@
                     } message: {
                         if deleteIsFolder {
                             Text(
-                                "Are you sure you want to delete this folder? ALL contents will be permanently deleted."
+                                "Êtes-vous sûr de vouloir supprimer ce dossier ? TOUT son contenu sera définitivement supprimé."
                             )
                         } else {
                             Text(
-                                "Are you sure you want to delete this item? This action cannot be undone."
+                                "Êtes-vous sûr de vouloir supprimer cet élément ? Cette action est irréversible."
                             )
                         }
                     }
 
                     if appState.isLoading {
                         Spacer()
-                        ProgressView("Loading...")
+                        ProgressView("Chargement...")
                         Spacer()
                     } else {
                         VStack(spacing: 0) {
                             Table(appState.objects, selection: $selectedObjectIds) {
-                                TableColumn("Name") { object in
+                                TableColumn("Nom") { object in
                                     HStack {
                                         Image(systemName: object.isFolder ? "folder.fill" : "doc")
                                             .foregroundColor(object.isFolder ? .blue : .secondary)
@@ -188,7 +191,7 @@
                                             selectedObjectIds = [object.id]
                                         }
 
-                                        Button("Rename") {
+                                        Button("Renommer") {
                                             renameItemKey = object.key
                                             renameItemName = displayName(for: object.key)
                                             renameIsFolder = object.isFolder
@@ -247,8 +250,8 @@
                         let fileCount = appState.objects.filter { !$0.isFolder }.count
                         let totalSize = appState.objects.reduce(0) { $0 + $1.size }
 
-                        Text("\(folderCount) folder\(folderCount > 1 ? "s" : "")")
-                        Text("\(fileCount) file\(fileCount > 1 ? "s" : "")")
+                        Text("\(folderCount) dossier\(folderCount > 1 ? "s" : "")")
+                        Text("\(fileCount) fichier\(fileCount > 1 ? "s" : "")")
                         Text(formatBytes(totalSize))
                             .fontWeight(.medium)
 
@@ -267,19 +270,19 @@
                 // Inspector / Detail View
                 if let selected = selectedObject {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Details")
+                        Text("Détails")
                             .font(.headline)
 
                         Divider()
 
                         Group {
-                            Text("Name:")
+                            Text("Nom :")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             Text(displayName(for: selected.key))
                                 .textSelection(.enabled)
 
-                            Text("Full Key:")
+                            Text("Clé complète :")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             Text(selected.key)
@@ -287,12 +290,12 @@
                                 .textSelection(.enabled)
 
                             if !selected.isFolder {
-                                Text("Size:")
+                                Text("Taille :")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Text(formatBytes(selected.size))
 
-                                Text("Last Modified:")
+                                Text("Dernière modification :")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Text(selected.lastModified.formatted())
@@ -308,7 +311,7 @@
                                         HStack {
                                             ProgressView()
                                                 .controlSize(.small)
-                                            Text("Loading ACL...")
+                                            Text("Chargement des ACL...")
                                                 .font(.caption)
                                                 .foregroundColor(.secondary)
                                         }
@@ -321,14 +324,14 @@
 
                                             Spacer()
 
-                                            Button(isPublic ? "Make Private" : "Make Public") {
+                                            Button(isPublic ? "Rendre Privé" : "Rendre Public") {
                                                 appState.togglePublicAccess(for: selected.key)
                                             }
                                             .buttonStyle(.link)
                                             .font(.caption)
                                         }
                                     } else {
-                                        Text("Could not load ACL")
+                                        Text("Impossible de charger les ACL")
                                             .font(.caption)
                                             .foregroundColor(.red)
                                     }
@@ -336,18 +339,19 @@
 
                                 Divider()
 
-                                Text("Version History")
+                                Text("Historique des versions")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
 
                                 if appState.isVersionsLoading {
                                     HStack {
                                         ProgressView().controlSize(.small)
-                                        Text("Loading versions...").font(.caption).foregroundColor(
-                                            .secondary)
+                                        Text("Chargement des versions...").font(.caption)
+                                            .foregroundColor(
+                                                .secondary)
                                     }
                                 } else if appState.selectedObjectVersions.isEmpty {
-                                    Text("No versions found").font(.caption).foregroundColor(
+                                    Text("Aucune version trouvée").font(.caption).foregroundColor(
                                         .secondary)
                                 } else {
                                     ScrollView {
@@ -365,7 +369,7 @@
                                                             version.isLatest ? .bold : .regular)
 
                                                         if version.isLatest {
-                                                            Text("Latest")
+                                                            Text("Dernière")
                                                                 .font(
                                                                     .system(size: 8, weight: .bold)
                                                                 )
@@ -404,7 +408,7 @@
                                                             .font(.system(size: 9))
                                                             .foregroundColor(.secondary)
                                                     } else {
-                                                        Text("Delete Marker")
+                                                        Text("Marqueur de suppression")
                                                             .font(.system(size: 9))
                                                             .foregroundColor(.red)
                                                     }
@@ -420,14 +424,14 @@
 
                                 Spacer()
 
-                                Button("Download Latest") {
+                                Button("Télécharger la dernière version") {
                                     appState.downloadFile(key: selected.key)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .frame(maxWidth: .infinity)
                             } else {
                                 Divider()
-                                Text("Folder Statistics:")
+                                Text("Statistiques du dossier :")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
 
@@ -436,15 +440,15 @@
                                         ProgressView()
                                             .controlSize(.small)
                                             .scaleEffect(0.8)
-                                        Text("Calculating...")
+                                        Text("Calcul en cours...")
                                             .foregroundColor(.secondary)
                                             .font(.caption)
                                     }
                                 } else if let stats = folderStats {
-                                    Text("Objects: \(stats.count)")
-                                    Text("Total Size: \(formatBytes(stats.size))")
+                                    Text("Objets : \(stats.count)")
+                                    Text("Taille totale : \(formatBytes(stats.size))")
                                 } else {
-                                    Text("Failed to load stats")
+                                    Text("Échec du chargement des stats")
                                         .font(.caption)
                                         .foregroundColor(.red)
                                 }

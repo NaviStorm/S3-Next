@@ -30,7 +30,7 @@ import UniformTypeIdentifiers
             NavigationStack {
                 ZStack {
                     if appState.isLoading {
-                        ProgressView("Loading...")
+                        ProgressView("Chargement...")
                     } else if let error = appState.errorMessage {
                         VStack(spacing: 20) {
                             Image(systemName: "exclamationmark.triangle")
@@ -38,7 +38,7 @@ import UniformTypeIdentifiers
                                 .foregroundColor(.yellow)
                             Text(error)
                                 .multilineTextAlignment(.center)
-                            Button("Retry") { appState.loadObjects() }
+                            Button("Réessayer") { appState.loadObjects() }
                                 .buttonStyle(.bordered)
                         }
                         .padding()
@@ -47,7 +47,7 @@ import UniformTypeIdentifiers
                             Image(systemName: "folder.badge.questionmark")
                                 .font(.largeTitle)
                                 .foregroundColor(.secondary)
-                            Text("No items found")
+                            Text("Aucun élément trouvé")
                                 .font(.headline)
                                 .foregroundColor(.secondary)
                         }
@@ -112,14 +112,15 @@ import UniformTypeIdentifiers
                                             renameIsFolder = object.isFolder
                                             showingRename = true
                                         }) {
-                                            Label("Rename", systemImage: "pencil")
+                                            Label("Renommer", systemImage: "pencil")
                                         }
 
                                         if !object.isFolder {
                                             Button(action: {
                                                 appState.downloadFile(key: object.key)
                                             }) {
-                                                Label("Download", systemImage: "arrow.down.circle")
+                                                Label(
+                                                    "Télécharger", systemImage: "arrow.down.circle")
                                             }
 
                                             Button(action: {
@@ -141,7 +142,7 @@ import UniformTypeIdentifiers
                                                 showingDelete = true
                                             }
                                         ) {
-                                            Label("Delete", systemImage: "trash")
+                                            Label("Supprimer", systemImage: "trash")
                                         }
                                     }
                                 }
@@ -161,7 +162,7 @@ import UniformTypeIdentifiers
                                 appState.navigateBack()
                             }) {
                                 Image(systemName: "chevron.left")
-                                Text("Back")
+                                Text("Retour")
                             }
                         }
                     }
@@ -169,13 +170,16 @@ import UniformTypeIdentifiers
                     ToolbarItem(placement: .navigationBarTrailing) {
                         HStack {
                             Menu {
-                                Picker("Sort By", selection: $appState.sortOption) {
+                                Picker("Trier par", selection: $appState.sortOption) {
                                     ForEach(S3AppState.SortOption.allCases) { option in
-                                        Text(option.rawValue).tag(option)
+                                        Text(
+                                            option == .name
+                                                ? "Nom" : (option == .date ? "Date" : "Taille")
+                                        ).tag(option)
                                     }
                                 }
                                 Divider()
-                                Toggle("Ascending", isOn: $appState.sortAscending)
+                                Toggle("Ascendant", isOn: $appState.sortAscending)
                             } label: {
                                 Image(systemName: "arrow.up.arrow.down")
                             }
@@ -200,19 +204,19 @@ import UniformTypeIdentifiers
                         }
                     }
                 }
-                .alert("New Folder", isPresented: $showingCreateFolder) {
-                    TextField("Folder Name", text: $newFolderName)
-                    Button("Create") {
+                .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
+                    TextField("Nom du dossier", text: $newFolderName)
+                    Button("Créer") {
                         if !newFolderName.isEmpty {
                             appState.createFolder(name: newFolderName)
                             newFolderName = ""
                         }
                     }
-                    Button("Cancel", role: .cancel) { newFolderName = "" }
+                    Button("Annuler", role: .cancel) { newFolderName = "" }
                 }
-                .alert("Rename", isPresented: $showingRename) {
-                    TextField("New Name", text: $renameItemName)
-                    Button("Rename") {
+                .alert("Renommer", isPresented: $showingRename) {
+                    TextField("Nouveau Nom", text: $renameItemName)
+                    Button("Renommer") {
                         if !renameItemName.isEmpty {
                             appState.renameObject(
                                 oldKey: renameItemKey, newName: renameItemName,
@@ -220,7 +224,7 @@ import UniformTypeIdentifiers
                             renameItemName = ""
                         }
                     }
-                    Button("Cancel", role: .cancel) { renameItemName = "" }
+                    Button("Annuler", role: .cancel) { renameItemName = "" }
                 }
                 .fileImporter(
                     isPresented: $showingFileImporter,
@@ -237,20 +241,20 @@ import UniformTypeIdentifiers
                             "File selection failed: \(error.localizedDescription)", type: .error)
                     }
                 }
-                .alert("Delete", isPresented: $showingDelete) {
-                    Button("Delete", role: .destructive) {
+                .alert("Supprimer", isPresented: $showingDelete) {
+                    Button("Supprimer", role: .destructive) {
                         if deleteIsFolder {
                             appState.deleteFolder(key: deleteItemKey)
                         } else {
                             appState.deleteObject(key: deleteItemKey)
                         }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button("Annuler", role: .cancel) {}
                 } message: {
                     Text(
                         deleteIsFolder
-                            ? "Are you sure you want to delete this folder and all its contents?"
-                            : "Are you sure you want to delete this file?")
+                            ? "Êtes-vous sûr de vouloir supprimer ce dossier et tout son contenu ?"
+                            : "Êtes-vous sûr de vouloir supprimer ce fichier ?")
                 }
                 .sheet(
                     isPresented: Binding(
@@ -266,7 +270,7 @@ import UniformTypeIdentifiers
                     NavigationStack {
                         VStack {
                             if appState.isVersionsLoading {
-                                ProgressView("Loading versions...")
+                                ProgressView("Chargement des versions...")
                             } else {
                                 List(appState.selectedObjectVersions) { version in
                                     VStack(alignment: .leading) {
@@ -279,7 +283,7 @@ import UniformTypeIdentifiers
                                                         .font(.caption)
                                                         .foregroundColor(.secondary)
                                                 } else {
-                                                    Text("Delete Marker")
+                                                    Text("Marqueur de suppression")
                                                         .font(.caption)
                                                         .foregroundColor(.red)
                                                 }
@@ -288,7 +292,7 @@ import UniformTypeIdentifiers
                                             Spacer()
 
                                             if version.isLatest {
-                                                Text("Latest")
+                                                Text("Dernière")
                                                     .font(.caption2)
                                                     .padding(4)
                                                     .background(Color.green.opacity(0.1))
@@ -314,7 +318,7 @@ import UniformTypeIdentifiers
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { showingVersions = false }
+                                Button("Terminé") { showingVersions = false }
                             }
                         }
                     }
@@ -326,7 +330,7 @@ import UniformTypeIdentifiers
                             .environmentObject(appState)
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
-                                    Button("Done") { showingSettings = false }
+                                    Button("Terminé") { showingSettings = false }
                                 }
                             }
                     }
@@ -334,18 +338,19 @@ import UniformTypeIdentifiers
                 .sheet(item: $selectedItemForInfo) { object in
                     NavigationStack {
                         List {
-                            Section("Properties") {
-                                LabeledContent("Name", value: displayName(for: object.key))
-                                LabeledContent("Key", value: object.key)
+                            Section("Propriétés") {
+                                LabeledContent("Nom", value: displayName(for: object.key))
+                                LabeledContent("Clé", value: object.key)
                                 if !object.isFolder {
-                                    LabeledContent("Size", value: formatBytes(object.size))
+                                    LabeledContent("Taille", value: formatBytes(object.size))
                                     LabeledContent(
-                                        "Last Modified", value: object.lastModified.formatted())
+                                        "Dernière modification",
+                                        value: object.lastModified.formatted())
 
                                     Divider()
 
                                     HStack {
-                                        Text("Access")
+                                        Text("Accès")
                                         Spacer()
                                         if appState.isACLLoading {
                                             ProgressView()
@@ -353,12 +358,12 @@ import UniformTypeIdentifiers
                                             HStack {
                                                 Image(systemName: isPublic ? "globe" : "lock.fill")
                                                     .foregroundColor(isPublic ? .green : .secondary)
-                                                Text(isPublic ? "Public" : "Private")
+                                                Text(isPublic ? "Public" : "Privé")
 
                                                 Button(action: {
                                                     appState.togglePublicAccess(for: object.key)
                                                 }) {
-                                                    Text("Change")
+                                                    Text("Modifier")
                                                         .font(.caption)
                                                         .padding(.horizontal, 8)
                                                         .padding(.vertical, 4)
@@ -369,25 +374,26 @@ import UniformTypeIdentifiers
                                         }
                                     }
                                 } else {
-                                    LabeledContent("Type", value: "Folder")
+                                    LabeledContent("Type", value: "Dossier")
                                     if isInfoStatsLoading {
                                         HStack {
-                                            Text("Calculating stats...")
+                                            Text("Calcul des stats...")
                                                 .foregroundColor(.secondary)
                                             ProgressView()
                                         }
                                     } else if let stats = infoFolderStats {
-                                        LabeledContent("Objects", value: "\(stats.count)")
-                                        LabeledContent("Total Size", value: formatBytes(stats.size))
+                                        LabeledContent("Objets", value: "\(stats.count)")
+                                        LabeledContent(
+                                            "Taille totale", value: formatBytes(stats.size))
                                     }
                                 }
                             }
                         }
-                        .navigationTitle("Details")
+                        .navigationTitle("Détails")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { selectedItemForInfo = nil }
+                                Button("Terminé") { selectedItemForInfo = nil }
                             }
                         }
                         .task {

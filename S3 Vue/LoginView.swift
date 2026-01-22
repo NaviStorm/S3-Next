@@ -5,23 +5,24 @@ struct LoginView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text("S3 Viewer Setup")
+            Text("Configuration du S3 Viewer")
                 .font(.largeTitle)
                 .padding(.bottom, 20)
 
             Form {
-                Section(header: Text("Credentials")) {
-                    TextField("Access Key ID", text: $appState.accessKey)
-                    SecureField("Secret Access Key", text: $appState.secretKey)
+                Section(header: Text("Identifiants")) {
+                    TextField("ID de Clé d'accès", text: $appState.accessKey)
+                    SecureField("Clé d'accès Secrète", text: $appState.secretKey)
                 }
 
-                Section(header: Text("Bucket Configuration")) {
-                    TextField("Bucket Name", text: $appState.bucket)
-                    TextField("Region (e.g. us-east-1)", text: $appState.region)
-                    TextField("Endpoint URL (Optional)", text: $appState.endpoint)
+                Section(header: Text("Configuration du Bucket")) {
+                    TextField("Nom du Bucket", text: $appState.bucket)
+                    TextField("Région (ex: us-east-1)", text: $appState.region)
+                    TextField("URL de l'Endpoint (Optionnel)", text: $appState.endpoint)
                     if !appState.endpoint.isEmpty {
                         Toggle(
-                            "Force Path Style (e.g. endpoint/bucket)", isOn: $appState.usePathStyle)
+                            "Forcer le Path Style (ex: endpoint/bucket)",
+                            isOn: $appState.usePathStyle)
                     }
                 }
             }
@@ -31,11 +32,8 @@ struct LoginView: View {
             #endif
 
             #if os(iOS)
-                Button("Show Debug Logs") {
-                    // Modifying state here requiring new State property or just toggle?
-                    // Simplest is to assume DebugView can be presented.
-                    // But LoginView doesn't have a sheet state.
-                    // Let's add one.
+                Button("Afficher les logs de débogage") {
+                    // ...
                 }
                 .buttonStyle(.borderless)
                 .padding(.top)
@@ -48,7 +46,7 @@ struct LoginView: View {
             }
 
             Button(action: {
-                appState.log("=== [UI] Connect Button Clicked ===")
+                appState.log("=== [UI] Bouton Connexion cliqué ===")
                 Task {
                     await appState.connect()
                 }
@@ -57,7 +55,7 @@ struct LoginView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Text("Connect")
+                    Text("Se connecter")
                 }
             }
             .buttonStyle(.borderedProminent)
