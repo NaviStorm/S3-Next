@@ -153,12 +153,15 @@
                                         )
                                         Text(displayName(for: object.key))
                                             .fontWeight(object.isFolder ? .medium : .regular)
+                                            .strikethrough(isRemoved(object.key))
+                                            .opacity(isRemoved(object.key) ? 0.6 : 1.0)
                                     }
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         selectedObjectIds = [object.id]
                                     }
                                     .onTapGesture(count: 2) {
+                                        if isRemoved(object.key) { return }
                                         if object.key == ".." {
                                             appState.navigateBack()
                                         } else if object.isFolder {
@@ -467,6 +470,10 @@
             if diff.modified.contains(where: { $0.key == key }) { return .orange }
             if diff.removed.contains(where: { $0.key == key }) { return .red }
             return nil
+        }
+
+        private func isRemoved(_ key: String) -> Bool {
+            return appState.activeComparison?.removed.contains(where: { $0.key == key }) ?? false
         }
 
         func getHighFidelityType(for ext: String) -> String {

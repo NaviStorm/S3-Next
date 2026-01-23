@@ -256,6 +256,7 @@ public final class S3AppState: ObservableObject {
                     }
 
                     self.objects = finalObjects
+                    self.injectRemovedObjects()
                     self.applySort()
                     self.log("Objects fetched. Parser logs: \n" + debugInfo)
                     self.isLoading = false
@@ -785,6 +786,41 @@ public final class S3AppState: ObservableObject {
         log(
             "[Diff] Comparison complete: \(added.count) added, \(removed.count) removed, \(modified.count) modified."
         )
+
+        // On injecte immédiatement les objets supprimés dans la vue actuelle
+        injectRemovedObjects()
+        applySort()
+    }
+
+    private func injectRemovedObjects() {
+        guard let diff = activeComparison else { return }
+        let currentPrefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+
+        // On filtre les objets supprimés qui appartiennent au dossier actuel
+        // et on les transforme en S3Object pour l'affichage
+        let removedInCurrentDir = diff.removed.filter { obj in
+            let key = obj.key
+            if !key.hasPrefix(currentPrefix) { return false }
+            let relativeKey = String(key.dropFirst(currentPrefix.count))
+            // On ne veut que les fichiers directs, pas ceux des sous-dossiers
+            return !relativeKey.contains("/")
+                || (relativeKey.hasSuffix("/") && relativeKey.filter { $0 == "/" }.count == 1)
+        }.map { snap in
+            S3Object(
+                key: snap.key,
+                size: snap.size,
+                lastModified: snap.lastModified,
+                eTag: snap.eTag,
+                isFolder: snap.isFolder
+            )
+        }
+
+        // Éviter les doublons si on rafraîchit
+        for obj in removedInCurrentDir {
+            if !self.objects.contains(where: { $0.key == obj.key }) {
+                self.objects.append(obj)
+            }
+        }
     }
 
     func clearComparison() {
