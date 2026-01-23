@@ -367,6 +367,23 @@
                                     .foregroundColor(.secondary)
                                 Text(selected.lastModified.formatted())
 
+                                if appState.isMetadataLoading {
+                                    ProgressView().controlSize(.small).padding(.top, 4)
+                                } else if let alias = appState.selectedObjectMetadata[
+                                    "x-amz-meta-cse-key-alias"]
+                                {
+                                    Divider()
+                                    Text("Clé de Chiffrement (CSE) :")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    HStack {
+                                        Image(systemName: "lock.fill")
+                                            .foregroundColor(.orange)
+                                        Text(alias)
+                                            .fontWeight(.semibold)
+                                    }
+                                }
+
                                 Divider()
 
                                 VStack(alignment: .leading, spacing: 4) {
@@ -568,6 +585,8 @@
                             isStatsLoading = false
                         } else {
                             appState.loadVersions(for: selected.key)
+                            appState.loadACL(for: selected.key)
+                            appState.loadMetadata(for: selected.key)
                         }
                     }
                 }

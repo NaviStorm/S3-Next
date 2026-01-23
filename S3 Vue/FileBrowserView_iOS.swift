@@ -350,6 +350,16 @@ import UniformTypeIdentifiers
                             LabeledContent("Taille", value: formatBytes(object.size))
                             LabeledContent(
                                 "Dernière modification", value: object.lastModified.formatted())
+
+                            if appState.isMetadataLoading {
+                                ProgressView().padding(.top, 4)
+                            } else if let alias = appState.selectedObjectMetadata[
+                                "x-amz-meta-cse-key-alias"]
+                            {
+                                LabeledContent("Chiffrement (CSE)", value: alias)
+                                    .foregroundColor(.orange)
+                            }
+
                             Divider()
                             accessSection(for: object)
                             Divider()
@@ -374,6 +384,7 @@ import UniformTypeIdentifiers
                         isInfoStatsLoading = false
                     } else {
                         appState.loadACL(for: object.key)
+                        appState.loadMetadata(for: object.key)
                     }
                 }
             }

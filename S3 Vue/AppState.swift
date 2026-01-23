@@ -91,8 +91,10 @@ public final class S3AppState: ObservableObject {
     @Published var isVersionsLoading = false
     @Published var isVersioningEnabled: Bool? = nil
     @Published var selectedObjectIsPublic: Bool? = nil
+    @Published var selectedObjectMetadata: [String: String] = [:]
     @Published var quickLookURL: URL? = nil
     @Published var isACLLoading = false
+    @Published var isMetadataLoading = false
 
     // CSE (Client Side Encryption)
     @Published var encryptionAliases: [String] = []
@@ -425,6 +427,27 @@ public final class S3AppState: ObservableObject {
                 DispatchQueue.main.async {
                     self.isACLLoading = false
                     self.log("[ACL] Failed to load ACL: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func loadMetadata(for key: String) {
+        guard let client = client else { return }
+        isMetadataLoading = true
+        selectedObjectMetadata = [:]
+
+        Task {
+            do {
+                let metadata = try await client.headObject(key: key)
+                DispatchQueue.main.async {
+                    self.selectedObjectMetadata = metadata
+                    self.isMetadataLoading = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isMetadataLoading = false
+                    self.log("[Metadata] Failed to load metadata: \(error.localizedDescription)")
                 }
             }
         }
