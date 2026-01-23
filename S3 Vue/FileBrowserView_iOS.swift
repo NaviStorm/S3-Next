@@ -61,6 +61,7 @@ import UniformTypeIdentifiers
                         deleteIsFolder: $deleteIsFolder,
                         showingVersions: $showingVersions,
                         showingSettings: $showingSettings,
+                        showingTransfers: $showingTransfers,
                         selectedItemForInfo: $selectedItemForInfo,
                         appState: appState,
                         selectedVerObject: $selectedVerObject,
@@ -471,6 +472,7 @@ import UniformTypeIdentifiers
         @Binding var deleteIsFolder: Bool
         @Binding var showingVersions: Bool
         @Binding var showingSettings: Bool
+        @Binding var showingTransfers: Bool
         @Binding var selectedItemForInfo: S3Object?
         @ObservedObject var appState: S3AppState
         @Binding var selectedVerObject: S3Object?
@@ -549,6 +551,18 @@ import UniformTypeIdentifiers
                             .toolbar {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Terminé") { showingSettings = false }
+                                }
+                            }
+                    }
+                }
+                .sheet(isPresented: $showingTransfers) {
+                    NavigationStack {
+                        TransferProgressView().environmentObject(appState)
+                            .navigationTitle("Transferts")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Terminé") { showingTransfers = false }
                                 }
                             }
                     }
