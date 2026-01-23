@@ -18,8 +18,6 @@
 			);
 			platformFiltersByRelativePath = {
 				LaunchScreen.storyboard = (ios, );
-				Views/Mac/FileBrowserView_Mac.swift = (macos, );
-				Views/iOS/FileBrowserView_iOS.swift = (ios, );
 			};
 			target = E40205612F204CF2005704FF /* S3 Vue */;
 		};
