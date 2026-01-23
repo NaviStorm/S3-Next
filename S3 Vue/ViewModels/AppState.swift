@@ -288,6 +288,13 @@ public final class S3AppState: ObservableObject {
         }
     }
 
+    func navigateToPath(at index: Int) {
+        guard index >= 0 && index < currentPath.count else { return }
+        currentPath = Array(currentPath.prefix(index + 1))
+        log("NAVIGATING TO PATH DEPTH: \(index) (\(currentPath.last ?? "root"))")
+        loadObjects()
+    }
+
     func navigateHome() {
         currentPath.removeAll()
         loadObjects()

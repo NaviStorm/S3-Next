@@ -82,15 +82,37 @@
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 4) {
-                            Text(appState.bucket)
-                                .fontWeight(.bold)
+                            Button(action: { appState.navigateHome() }) {
+                                Text(appState.bucket)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.primary)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { inside in
+                                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
 
                             ForEach(Array(appState.currentPath.enumerated()), id: \.offset) {
                                 index, folder in
                                 Image(systemName: "chevron.right")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
-                                Text(folder)
+
+                                Button(action: { appState.navigateToPath(at: index) }) {
+                                    Text(folder)
+                                        .foregroundColor(
+                                            index == appState.currentPath.count - 1
+                                                ? .primary : .blue)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(index == appState.currentPath.count - 1)
+                                .onHover { inside in
+                                    if inside && index != appState.currentPath.count - 1 {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
                             }
                         }
                     }
