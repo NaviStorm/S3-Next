@@ -5,7 +5,7 @@ struct TransferProgressView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if appState.transferTasks.isEmpty {
+            if appState.transferManager.transferTasks.isEmpty {
                 VStack {
                     Image(systemName: "arrow.up.arrow.down.circle")
                         .font(.system(size: 40))
@@ -16,20 +16,20 @@ struct TransferProgressView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(appState.transferTasks) { transferTask in
+                    ForEach(appState.transferManager.transferTasks) { transferTask in
                         TransferTaskRow(transferTask: transferTask)
                     }
                     .onDelete { indexSet in
-                        appState.transferTasks.remove(atOffsets: indexSet)
+                        appState.transferManager.transferTasks.remove(atOffsets: indexSet)
                     }
                 }
             }
 
-            if !appState.transferTasks.isEmpty {
+            if !appState.transferManager.transferTasks.isEmpty {
                 Divider()
                 HStack {
                     Button("Tout effacer") {
-                        appState.transferTasks.removeAll {
+                        appState.transferManager.transferTasks.removeAll {
                             $0.status == .completed || $0.status == .failed
                                 || $0.status == .cancelled
                         }

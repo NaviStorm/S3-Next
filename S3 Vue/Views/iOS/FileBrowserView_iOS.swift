@@ -304,8 +304,9 @@ import UniformTypeIdentifiers
                     Button(action: { showingTransfers = true }) {
                         ZStack(alignment: .topTrailing) {
                             Image(systemName: "arrow.up.arrow.down.circle")
-                            if appState.transferTasks.contains(where: { $0.status == .inProgress })
-                            {
+                            if appState.transferManager.transferTasks.contains(where: {
+                                $0.status == .inProgress
+                            }) {
                                 Circle()
                                     .fill(.red)
                                     .frame(width: 8, height: 8)
