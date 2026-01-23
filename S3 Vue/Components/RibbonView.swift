@@ -25,14 +25,12 @@ struct RibbonView: View {
                     title: "ACCUEIL", isSelected: selectedTab == 0, namespace: animation
                 ) { withAnimation(.spring(response: 0.3)) { selectedTab = 0 } }
                 RibbonTabHeader(
-                    title: "TRANSFERTS", isSelected: selectedTab == 1, namespace: animation
+                    title: "TRANSFERTS & GESTION", isSelected: selectedTab == 1,
+                    namespace: animation
                 ) { withAnimation(.spring(response: 0.3)) { selectedTab = 1 } }
                 RibbonTabHeader(
-                    title: "GESTION", isSelected: selectedTab == 2, namespace: animation
+                    title: "SEAU (BUCKET)", isSelected: selectedTab == 2, namespace: animation
                 ) { withAnimation(.spring(response: 0.3)) { selectedTab = 2 } }
-                RibbonTabHeader(
-                    title: "SEAU (BUCKET)", isSelected: selectedTab == 3, namespace: animation
-                ) { withAnimation(.spring(response: 0.3)) { selectedTab = 3 } }
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -98,18 +96,21 @@ struct RibbonView: View {
                                     insertion: .move(edge: .leading).combined(with: .opacity),
                                     removal: .move(edge: .trailing).combined(with: .opacity)))
                         } else if selectedTab == 1 {
-                            // Onglet TRANSFERTS
+                            // Onglet FUSIONNÉ : TRANSFERTS & GESTION
                             HStack(alignment: .top, spacing: 15) {
-                                RibbonGroup(label: "Téléchargement vers S3") {
+                                RibbonGroup(label: "Transferts") {
                                     RibbonButton(
-                                        title: "Fichiers", icon: "doc.badge.plus",
-                                        color: .blue, action: onUploadFile)
+                                        title: "Fichiers", icon: "doc.badge.plus", color: .blue,
+                                        action: onUploadFile)
                                     RibbonButton(
-                                        title: "Dossier", icon: "folder.badge.plus",
-                                        color: .blue, action: onUploadFolder)
+                                        title: "Dossier", icon: "folder.badge.plus", color: .blue,
+                                        action: onUploadFolder)
+                                    RibbonButton(
+                                        title: "Télécharger", icon: "arrow.down.doc.fill",
+                                        color: .green, action: onDownload)
                                 }
 
-                                RibbonGroup(label: "Chiffrement (Sticky)") {
+                                RibbonGroup(label: "Chiffrement") {
                                     Menu {
                                         Button(action: { appState.selectedEncryptionAlias = nil }) {
                                             HStack {
@@ -160,15 +161,8 @@ struct RibbonView: View {
                                     }
                                     .menuStyle(.borderlessButton)
                                 }
-                            }
-                            .transition(
-                                .asymmetric(
-                                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                                    removal: .move(edge: .leading).combined(with: .opacity)))
-                        } else if selectedTab == 2 {
-                            // Onglet GESTION
-                            HStack(alignment: .top, spacing: 15) {
-                                RibbonGroup(label: "Objets") {
+
+                                RibbonGroup(label: "Gestion Objets") {
                                     RibbonButton(
                                         title: "Nouveau", icon: "plus.rectangle.on.folder.fill",
                                         color: .blue, action: onCreateFolder)
@@ -176,23 +170,14 @@ struct RibbonView: View {
                                         title: "Renommer", icon: "pencil.circle.fill",
                                         action: onRename)
                                     RibbonButton(
+                                        title: "Aperçu", icon: "eye.fill", action: onPreview)
+                                    RibbonButton(
                                         title: "Supprimer", icon: "trash.fill", color: .red,
                                         action: onDelete)
                                 }
-
-                                RibbonGroup(label: "Récupération") {
-                                    RibbonButton(
-                                        title: "Aperçu", icon: "eye.fill", action: onPreview)
-                                    RibbonButton(
-                                        title: "Télécharger", icon: "arrow.down.doc.fill",
-                                        color: .green, action: onDownload)
-                                }
                             }
-                            .transition(
-                                .asymmetric(
-                                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                                    removal: .move(edge: .leading).combined(with: .opacity)))
-                        } else if selectedTab == 3 {
+                            .transition(.opacity)
+                        } else if selectedTab == 2 {
                             // Onglet BUCKET
                             HStack(alignment: .top, spacing: 15) {
                                 RibbonGroup(label: "Versioning") {
@@ -253,7 +238,7 @@ struct RibbonView: View {
 
             Divider()
         }
-        .frame(height: 125)  // Hauteur totale fixe: Header (~30px) + Body (95px)
+        .frame(height: 125)
     }
 }
 
