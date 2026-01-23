@@ -88,6 +88,14 @@ public final class S3AppState: ObservableObject {
     @Published var isACLLoading = false
     @Published var isMetadataLoading = false
 
+    // Snapshots & Time Machine
+    @Published var savedSnapshots: [S3Snapshot] = []
+    @Published var isScanning = false
+    @Published var scanProgress: Double = 0
+    @Published var activeComparison: SnapshotDiff? = nil
+    @Published var comparisonBaseId: UUID? = nil
+    @Published var comparisonTargetId: UUID? = nil
+
     // CSE (Client Side Encryption)
     @Published var encryptionAliases: [String] = []
     @Published var selectedEncryptionAlias: String? = {
@@ -129,6 +137,7 @@ public final class S3AppState: ObservableObject {
     init() {
         loadConfig()
         setupTransferManager()
+        loadSavedSnapshots()
     }
 
     private func setupTransferManager() {
@@ -239,6 +248,7 @@ public final class S3AppState: ObservableObject {
                             key: "..",  // Special identifier
                             size: 0,
                             lastModified: Date(),
+                            eTag: nil,
                             isFolder: true
                         )
                         // Insert at top
@@ -696,5 +706,90 @@ public final class S3AppState: ObservableObject {
                 "Échec de la génération du lien : \(error.localizedDescription)", type: .error)
             log("[Presigned URL] ERROR: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Snapshots Logic
+
+    func loadSavedSnapshots() {
+        self.savedSnapshots = SnapshotManager.shared.loadSnapshots(for: self.bucket)
+    }
+
+    func takeSnapshot() {
+        guard let client = client else { return }
+        isScanning = true
+        scanProgress = 0
+
+        Task {
+            do {
+                log("[Snapshot] Starting full bucket scan for \(bucket)...")
+                let allObjects = try await client.listAllObjects(prefix: "")
+
+                let snapshot = S3Snapshot(bucket: self.bucket, objects: allObjects)
+                try SnapshotManager.shared.save(snapshot)
+
+                DispatchQueue.main.async {
+                    self.loadSavedSnapshots()
+                    self.isScanning = false
+                    self.showToast("Snapshot capturé (\(allObjects.count) objets)", type: .success)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isScanning = false
+                    self.showToast(
+                        "Échec du snapshot : \(error.localizedDescription)", type: .error)
+                }
+            }
+        }
+    }
+
+    func compareSnapshots(idA: UUID, idB: UUID) {
+        guard let snapA = savedSnapshots.first(where: { $0.id == idA }),
+            let snapB = savedSnapshots.first(where: { $0.id == idB })
+        else { return }
+
+        comparisonBaseId = idA
+        comparisonTargetId = idB
+
+        // On compare snapA (Base/Ancien) avec snapB (Cible/Récent)
+        var added: [S3ObjectSnapshot] = []
+        var removed: [S3ObjectSnapshot] = []
+        var modified: [S3ObjectSnapshot] = []
+
+        let keysA = Set(snapA.objects.keys)
+        let keysB = Set(snapB.objects.keys)
+
+        // Ajoutés dans B
+        let addedKeys = keysB.subtracting(keysA)
+        for key in addedKeys {
+            if let obj = snapB.objects[key] { added.append(obj) }
+        }
+
+        // Supprimés de A
+        let removedKeys = keysA.subtracting(keysB)
+        for key in removedKeys {
+            if let obj = snapA.objects[key] { removed.append(obj) }
+        }
+
+        // Communs : Vérifier modifications
+        let commonKeys = keysA.intersection(keysB)
+        for key in commonKeys {
+            if let objA = snapA.objects[key], let objB = snapB.objects[key] {
+                // On compare Taille et ETag
+                if objA.size != objB.size || objA.eTag != objB.eTag {
+                    modified.append(objB)
+                }
+            }
+        }
+
+        self.activeComparison = SnapshotDiff(added: added, removed: removed, modified: modified)
+        log(
+            "[Diff] Comparison complete: \(added.count) added, \(removed.count) removed, \(modified.count) modified."
+        )
+    }
+
+    func clearComparison() {
+        activeComparison = nil
+        comparisonBaseId = nil
+        comparisonTargetId = nil
     }
 }

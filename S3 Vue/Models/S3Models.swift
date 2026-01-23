@@ -23,6 +23,7 @@ public struct S3Object: Identifiable, Hashable {
     public let key: String
     public let size: Int64
     public let lastModified: Date
+    public let eTag: String?
     public let isFolder: Bool
 }
 

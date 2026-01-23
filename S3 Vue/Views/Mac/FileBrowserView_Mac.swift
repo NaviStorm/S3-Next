@@ -23,6 +23,7 @@
 
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
+        @State private var showingTimeMachine = false
 
         // Cache for file type descriptions
         @State private var typeCache: [String: String] = [:]
@@ -71,7 +72,8 @@
                             deleteIsFolder = selected.isFolder
                             showingDelete = true
                         }
-                    }
+                    },
+                    onShowTimeMachine: { showingTimeMachine = true }
                 )
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -145,7 +147,10 @@
                                                 ? "arrow.up.circle.fill"
                                                 : (object.isFolder ? "folder.fill" : "doc")
                                         )
-                                        .foregroundColor(object.isFolder ? .blue : .secondary)
+                                        .foregroundColor(
+                                            diffColor(for: object.key)
+                                                ?? (object.isFolder ? .blue : .secondary)
+                                        )
                                         Text(displayName(for: object.key))
                                             .fontWeight(object.isFolder ? .medium : .regular)
                                     }
@@ -417,6 +422,9 @@
                     appState.uploadFolder(url: url)
                 }
             }
+            .sheet(isPresented: $showingTimeMachine) {
+                SnapshotTimelineView()
+            }
         }
 
         func displayName(for key: String) -> String {
@@ -448,6 +456,14 @@
                 await MainActor.run { typeCache[ext] = highFid }
             }
             return fastDesc
+        }
+
+        private func diffColor(for key: String) -> Color? {
+            guard let diff = appState.activeComparison else { return nil }
+            if diff.added.contains(where: { $0.key == key }) { return .green }
+            if diff.modified.contains(where: { $0.key == key }) { return .orange }
+            if diff.removed.contains(where: { $0.key == key }) { return .red }
+            return nil
         }
 
         func getHighFidelityType(for ext: String) -> String {

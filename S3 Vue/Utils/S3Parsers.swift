@@ -9,6 +9,7 @@ class S3XMLParser: NSObject, XMLParserDelegate {
     private var currentKey = ""
     private var currentSize: Int64 = 0
     private var currentLastModifiedString = ""
+    private var currentETag = ""
     private var currentPrefixValue = ""
     private var inContents = false
 
@@ -37,6 +38,7 @@ class S3XMLParser: NSObject, XMLParserDelegate {
             currentKey = ""
             currentSize = 0
             currentLastModifiedString = ""
+            currentETag = ""
         } else if elementName == "CommonPrefixes" {
             currentPrefixValue = ""
         }
@@ -51,6 +53,8 @@ class S3XMLParser: NSObject, XMLParserDelegate {
                 if !cleaned.isEmpty { currentSize = Int64(cleaned) ?? 0 }
             } else if currentElement == "LastModified" {
                 currentLastModifiedString += string
+            } else if currentElement == "ETag" {
+                currentETag += string
             }
         } else {
             let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -76,6 +80,8 @@ class S3XMLParser: NSObject, XMLParserDelegate {
             let date = parseDate(
                 currentLastModifiedString.trimmingCharacters(in: .whitespacesAndNewlines))
             var key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+            let eTag = currentETag.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\"", with: "")
 
             // Support pour certains providers S3 qui renvoient des clés relatives au préfixe
             if !prefix.isEmpty && !key.hasPrefix(prefix) {
@@ -85,7 +91,9 @@ class S3XMLParser: NSObject, XMLParserDelegate {
             // Include prefix itself if filterPrefix is false
             if !key.isEmpty && (filterPrefix ? key != prefix : true) {
                 objects.append(
-                    S3Object(key: key, size: currentSize, lastModified: date, isFolder: false))
+                    S3Object(
+                        key: key, size: currentSize, lastModified: date, eTag: eTag, isFolder: false
+                    ))
             }
         } else if elementName == "CommonPrefixes" {
             var folderKey = currentPrefixValue.trimmingCharacters(in: .init(charactersIn: "\n\r"))
@@ -97,7 +105,9 @@ class S3XMLParser: NSObject, XMLParserDelegate {
 
             if !folderKey.isEmpty && (filterPrefix ? folderKey != prefix : true) {
                 objects.append(
-                    S3Object(key: folderKey, size: 0, lastModified: Date(), isFolder: true))
+                    S3Object(
+                        key: folderKey, size: 0, lastModified: Date(), eTag: nil, isFolder: true)
+                )
             }
         }
     }
