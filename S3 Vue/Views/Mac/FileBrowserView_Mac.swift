@@ -127,6 +127,10 @@
                                         Text(displayName(for: object.key))
                                             .fontWeight(object.isFolder ? .medium : .regular)
                                     }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        selectedObjectIds = [object.id]
+                                    }
                                     .onTapGesture(count: 2) {
                                         if object.key == ".." {
                                             appState.navigateBack()
