@@ -88,32 +88,59 @@
                         .help("Nouveau Dossier")
 
                         Menu {
-                            Button("Envoyer des fichiers...") {
-                                appState.selectedEncryptionAlias = nil
-                                showingFileImporter = true
-                            }
-                            Button("Envoyer un dossier...") {
-                                appState.selectedEncryptionAlias = nil
-                                showingFolderImporter = true
-                            }
+                            Section("Sélection de la clé (Sticky)") {
+                                Button(action: {
+                                    appState.selectedEncryptionAlias = nil
+                                }) {
+                                    HStack {
+                                        Text("Sans chiffrement")
+                                        if appState.selectedEncryptionAlias == nil {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
 
-                            if !appState.encryptionAliases.isEmpty {
-                                Divider()
-                                Menu("Envoyer Chiffré (CSE)") {
-                                    ForEach(appState.encryptionAliases, id: \.self) { alias in
-                                        Button(alias) {
-                                            appState.selectedEncryptionAlias = alias
-                                            showingFileImporter = true
+                                ForEach(appState.encryptionAliases, id: \.self) { alias in
+                                    Button(action: {
+                                        appState.selectedEncryptionAlias = alias
+                                    }) {
+                                        HStack {
+                                            Text(alias)
+                                            if appState.selectedEncryptionAlias == alias {
+                                                Image(systemName: "checkmark")
+                                            }
                                         }
                                     }
                                 }
                             }
+
+                            Divider()
+
+                            Section("Actions d'upload") {
+                                Button("Envoyer des fichiers...") {
+                                    showingFileImporter = true
+                                }
+                                Button("Envoyer un dossier...") {
+                                    showingFolderImporter = true
+                                }
+                            }
                         } label: {
-                            Image(systemName: "square.and.arrow.up")
+                            HStack(spacing: 2) {
+                                Image(systemName: "square.and.arrow.up")
+                                if let alias = appState.selectedEncryptionAlias {
+                                    Image(systemName: "lock.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.orange)
+                                }
+                            }
                         }
                         .menuStyle(.borderlessButton)
-                        .frame(width: 30)
-                        .help("Envoyer (Upload) du contenu vers S3")
+                        .frame(width: 45)
+                        .help(
+                            appState.selectedEncryptionAlias == nil
+                                ? "Envoyer du contenu"
+                                : "Envoyer du contenu (Chiffré avec \(appState.selectedEncryptionAlias!))"
+                        )
 
                         if let selected = selectedObject {
                             Button(action: {

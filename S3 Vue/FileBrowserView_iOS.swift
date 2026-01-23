@@ -250,39 +250,54 @@ import UniformTypeIdentifiers
                     }
 
                     Menu {
-                        Section("Upload Standard") {
+                        Section("Sélection de la clé (Sticky)") {
                             Button(action: {
                                 appState.selectedEncryptionAlias = nil
+                            }) {
+                                HStack {
+                                    Label("Sans chiffrement", systemImage: "unlock")
+                                    if appState.selectedEncryptionAlias == nil {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+
+                            ForEach(appState.encryptionAliases, id: \.self) { alias in
+                                Button(action: {
+                                    appState.selectedEncryptionAlias = alias
+                                }) {
+                                    HStack {
+                                        Label(alias, systemImage: "key.fill")
+                                        if appState.selectedEncryptionAlias == alias {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Section("Actions d'upload") {
+                            Button(action: {
                                 showingFileImporter = true
                             }) {
                                 Label("Fichiers", systemImage: "doc.badge.plus")
                             }
                             Button(action: {
-                                appState.selectedEncryptionAlias = nil
                                 showingFolderImporter = true
                             }) {
                                 Label("Dossier", systemImage: "folder.badge.plus")
                             }
                         }
-
-                        if !appState.encryptionAliases.isEmpty {
-                            Section("Upload Chiffré (CSE)") {
-                                Menu {
-                                    ForEach(appState.encryptionAliases, id: \.self) { alias in
-                                        Button(action: {
-                                            appState.selectedEncryptionAlias = alias
-                                            showingFileImporter = true
-                                        }) {
-                                            Label(alias, systemImage: "key.fill")
-                                        }
-                                    }
-                                } label: {
-                                    Label("Sélectionner une clé...", systemImage: "lock.shield")
-                                }
+                    } label: {
+                        ZStack(alignment: .bottomTrailing) {
+                            Image(systemName: "plus.app")
+                            if appState.selectedEncryptionAlias != nil {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.orange)
+                                    .offset(x: 2, y: 2)
                             }
                         }
-                    } label: {
-                        Image(systemName: "plus.app")
                     }
 
                     Button(action: { showingTransfers = true }) {

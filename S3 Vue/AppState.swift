@@ -96,7 +96,14 @@ public final class S3AppState: ObservableObject {
 
     // CSE (Client Side Encryption)
     @Published var encryptionAliases: [String] = []
-    @Published var selectedEncryptionAlias: String? = nil  // Pour l'upload "à la demande"
+    @Published var selectedEncryptionAlias: String? = {
+        UserDefaults.standard.string(forKey: "selectedEncryptionAlias")
+    }()
+    {
+        didSet {
+            UserDefaults.standard.set(selectedEncryptionAlias, forKey: "selectedEncryptionAlias")
+        }
+    }
 
     private func applySort() {
         // Keep ".." at top

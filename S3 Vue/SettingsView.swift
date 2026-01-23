@@ -3,7 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var appState: S3AppState
     @State private var showingAddKeyAlert = false
+    @State private var showingImportKeyAlert = false
     @State private var newKeyAlias = ""
+    @State private var importKeyAlias = ""
+    @State private var importKeyBase64 = ""
 
     var body: some View {
         Form {
@@ -66,6 +69,24 @@ struct SettingsView: View {
                                 .foregroundColor(.orange)
                             Text(alias)
                             Spacer()
+
+                            Button {
+                                if let base64 = appState.exportKey(alias: alias) {
+                                    #if os(macOS)
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(base64, forType: .string)
+                                    #else
+                                        UIPasteboard.general.string = base64
+                                    #endif
+                                    appState.showToast(
+                                        "Clé '\(alias)' copiée (partage)", type: .success)
+                                }
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Copier la clé pour la partager")
+
                             Button(role: .destructive) {
                                 appState.deleteEncryptionKey(alias: alias)
                             } label: {
@@ -79,7 +100,7 @@ struct SettingsView: View {
                 Button(action: {
                     showingAddKeyAlert = true
                 }) {
-                    Label("Ajouter une clé...", systemImage: "plus")
+                    Label("Générer une clé...", systemImage: "plus")
                 }
                 .alert("Nouvelle clé", isPresented: $showingAddKeyAlert) {
                     TextField("Alias de la clé", text: $newKeyAlias)
@@ -95,12 +116,35 @@ struct SettingsView: View {
                         "Entrez un alias pour générer une nouvelle clé AES-256 stockée localement dans votre Keychain."
                     )
                 }
+
+                Button(action: {
+                    showingImportKeyAlert = true
+                }) {
+                    Label("Importer une clé...", systemImage: "square.and.arrow.down")
+                }
+                .alert("Importer une clé", isPresented: $showingImportKeyAlert) {
+                    TextField("Alias de la clé", text: $importKeyAlias)
+                    TextField("Clé Base64", text: $importKeyBase64)
+                    Button("Importer") {
+                        if !importKeyAlias.isEmpty && !importKeyBase64.isEmpty {
+                            appState.importKey(alias: importKeyAlias, base64: importKeyBase64)
+                            importKeyAlias = ""
+                            importKeyBase64 = ""
+                        }
+                    }
+                    Button("Annuler", role: .cancel) {
+                        importKeyAlias = ""
+                        importKeyBase64 = ""
+                    }
+                } message: {
+                    Text("Collez ici l'alias et la clé en format Base64 reçus pour l'importation.")
+                }
             }
         }
         .formStyle(.grouped)
         .padding()
         #if os(macOS)
-            .frame(width: 450, height: 350)
+            .frame(width: 450, height: 400)
         #endif
         .navigationTitle("Réglages")
         .task {

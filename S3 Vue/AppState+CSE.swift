@@ -72,4 +72,38 @@ extension S3AppState {
         log("[CSE] Decryption successful")
         return decryptedData
     }
+
+    // MARK: - Key Export/Import
+
+    func exportKey(alias: String) -> String? {
+        guard
+            let keyData = KeychainHelper.shared.readData(service: "com.s3vue.keys", account: alias)
+        else {
+            showToast("Impossible d'exporter la clé '\(alias)'", type: .error)
+            return nil
+        }
+        return keyData.base64EncodedString()
+    }
+
+    func importKey(alias: String, base64: String) {
+        guard let keyData = Data(base64Encoded: base64) else {
+            showToast("Clé invalide (format attendu : Base64)", type: .error)
+            return
+        }
+
+        // On vérifie si 256 bits (32 octets)
+        guard keyData.count == 32 else {
+            showToast("Clé invalide (doit être de 256 bits / 32 octets)", type: .error)
+            return
+        }
+
+        KeychainHelper.shared.saveData(keyData, service: "com.s3vue.keys", account: alias)
+
+        if !encryptionAliases.contains(alias) {
+            encryptionAliases.append(alias)
+            UserDefaults.standard.set(encryptionAliases, forKey: "encryptionAliases")
+        }
+
+        showToast("Clé '\(alias)' importée", type: .success)
+    }
 }
