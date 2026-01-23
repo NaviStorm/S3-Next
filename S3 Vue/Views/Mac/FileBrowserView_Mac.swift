@@ -24,6 +24,9 @@
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
 
+        // Cache for file type descriptions
+        @State private var typeCache: [String: String] = [:]
+
         // Computed property to maintain backward compatibility with inspector logic
         var selectedObject: S3Object? {
             guard let id = selectedObjectIds.first else { return nil }
@@ -31,189 +34,95 @@
         }
 
         var body: some View {
-            HSplitView {
-                // Main File List
-                VStack(spacing: 0) {
-                    // Breadcrumbs / Navigation Bar
-                    HStack {
-                        Button(action: { appState.navigateBack() }) {
-                            Image(systemName: "arrow.backward")
-                        }
-                        .disabled(appState.currentPath.isEmpty)
-
-                        Button(action: { appState.navigateHome() }) {
-                            Image(systemName: "house")
-                        }
-
-                        Divider()
-                            .frame(height: 16)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
-                                Text(appState.bucket)
-                                    .fontWeight(.bold)
-                                // Use indices to handle duplicate folder names in path
-                                ForEach(Array(appState.currentPath.enumerated()), id: \.offset) {
-                                    index, folder in
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    Text(folder)
-                                }
-                            }
-                        }
-
-                        Menu {
-                            Picker("Trier par", selection: $appState.sortOption) {
-                                ForEach(S3AppState.SortOption.allCases) { option in
-                                    Text(
-                                        option == .name
-                                            ? "Nom" : (option == .date ? "Date" : "Taille")
-                                    ).tag(option)
-                                }
-                            }
-                            Divider()
-                            Toggle("Ascendant", isOn: $appState.sortAscending)
-                        } label: {
-                            Image(systemName: "arrow.up.arrow.down")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .frame(width: 30)
-
-                        Spacer()
-
-                        Button(action: { showingCreateFolder = true }) {
-                            Image(systemName: "folder.badge.plus")
-                        }
-                        .help("Nouveau Dossier")
-
-                        Menu {
-                            Section("Sélection de la clé (Sticky)") {
-                                Button(action: {
-                                    appState.selectedEncryptionAlias = nil
-                                }) {
-                                    HStack {
-                                        if appState.selectedEncryptionAlias == nil {
-                                            Image(systemName: "checkmark")
-                                        }
-                                        Text("Sans chiffrement")
-                                    }
-                                }
-
-                                ForEach(appState.encryptionAliases, id: \.self) { alias in
-                                    Button(action: {
-                                        appState.selectedEncryptionAlias = alias
-                                    }) {
-                                        HStack {
-                                            if appState.selectedEncryptionAlias == alias {
-                                                Image(systemName: "checkmark")
-                                            }
-                                            Text(alias)
-                                        }
-                                    }
-                                }
-                            }
-
-                            Divider()
-
-                            Section("Actions d'upload") {
-                                Button("Envoyer des fichiers...") {
-                                    showingFileImporter = true
-                                }
-                                Button("Envoyer un dossier...") {
-                                    showingFolderImporter = true
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 2) {
-                                Image(systemName: "square.and.arrow.up")
-                                if let alias = appState.selectedEncryptionAlias {
-                                    Image(systemName: "lock.fill")
-                                        .font(.system(size: 8))
-                                        .foregroundColor(.orange)
-                                }
-                            }
-                        }
-                        .menuStyle(.borderlessButton)
-                        .frame(width: 45)
-                        .help(
-                            appState.selectedEncryptionAlias == nil
-                                ? "Envoyer du contenu"
-                                : "Envoyer du contenu (Chiffré avec \(appState.selectedEncryptionAlias!))"
-                        )
-
+            VStack(spacing: 0) {
+                // Ribbon UI
+                RibbonView(
+                    onUploadFile: { showingFileImporter = true },
+                    onUploadFolder: { showingFolderImporter = true },
+                    onCreateFolder: { showingCreateFolder = true },
+                    onRefresh: { appState.loadObjects() },
+                    onNavigateHome: { appState.navigateHome() },
+                    onNavigateBack: { appState.navigateBack() },
+                    onDownload: {
                         if let selected = selectedObject {
-                            Button(action: {
-                                if selected.isFolder {
-                                    appState.downloadFolder(key: selected.key)
-                                } else {
-                                    appState.downloadFile(key: selected.key)
-                                }
-                            }) {
-                                Image(systemName: "square.and.arrow.down")
-                            }
-                            .help("Télécharger l'élément sélectionné sur mon Mac")
-                        }
-
-                        Button("Déconnexion") {
-                            appState.disconnect()
-                        }
-                    }
-                    .padding(8)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
-                        TextField("Nom du dossier", text: $newFolderName)
-                        Button("Créer") {
-                            if !newFolderName.isEmpty {
-                                appState.createFolder(name: newFolderName)
-                                newFolderName = ""
-                            }
-                        }
-                        Button("Annuler", role: .cancel) { newFolderName = "" }
-                    }
-                    .alert("Renommer", isPresented: $showingRename) {
-                        TextField("Nouveau nom", text: $renameItemName)
-                        Button("Renommer") {
-                            if !renameItemName.isEmpty {
-                                appState.renameObject(
-                                    oldKey: renameItemKey, newName: renameItemName,
-                                    isFolder: renameIsFolder)
-                            }
-                        }
-                        Button("Annuler", role: .cancel) { renameItemName = "" }
-                    }
-                    .alert("Delete", isPresented: $showingDelete) {
-                        Button("Delete", role: .destructive) {
-                            if deleteIsFolder {
-                                appState.deleteFolder(key: deleteItemKey)
+                            if selected.isFolder {
+                                appState.downloadFolder(key: selected.key)
                             } else {
-                                appState.deleteObject(key: deleteItemKey)
+                                appState.downloadFile(key: selected.key)
                             }
                         }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        if deleteIsFolder {
-                            Text(
-                                "Êtes-vous sûr de vouloir supprimer ce dossier ? TOUT son contenu sera définitivement supprimé."
-                            )
-                        } else {
-                            Text(
-                                "Êtes-vous sûr de vouloir supprimer cet élément ? Cette action est irréversible."
-                            )
+                    },
+                    onPreview: {
+                        if let selected = selectedObject, !selected.isFolder {
+                            appState.previewFile(key: selected.key)
+                        }
+                    },
+                    onRename: {
+                        if let selected = selectedObject {
+                            renameItemKey = selected.key
+                            renameItemName = displayName(for: selected.key)
+                            renameIsFolder = selected.isFolder
+                            showingRename = true
+                        }
+                    },
+                    onDelete: {
+                        if let selected = selectedObject {
+                            deleteItemKey = selected.key
+                            deleteIsFolder = selected.isFolder
+                            showingDelete = true
+                        }
+                    }
+                )
+
+                // Breadcrumbs / Path Info Bar (Discrète)
+                HStack {
+                    Image(systemName: "folder")
+                        .foregroundColor(.secondary)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            Text(appState.bucket)
+                                .fontWeight(.bold)
+
+                            ForEach(Array(appState.currentPath.enumerated()), id: \.offset) {
+                                index, folder in
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text(folder)
+                            }
                         }
                     }
 
-                    if appState.isLoading {
-                        Spacer()
-                        ProgressView("Chargement...")
-                        Spacer()
-                    } else {
-                        VStack(spacing: 0) {
+                    Spacer()
+
+                    if let selected = selectedObject {
+                        Text("Sélection : \(displayName(for: selected.key))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+
+                HSplitView {
+                    // Main File List
+                    VStack(spacing: 0) {
+                        if appState.isLoading {
+                            Spacer()
+                            ProgressView("Chargement...")
+                            Spacer()
+                        } else {
                             Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
                                     HStack {
-                                        Image(systemName: object.isFolder ? "folder.fill" : "doc")
-                                            .foregroundColor(object.isFolder ? .blue : .secondary)
+                                        Image(
+                                            systemName: object.key == ".."
+                                                ? "arrow.up.circle.fill"
+                                                : (object.isFolder ? "folder.fill" : "doc")
+                                        )
+                                        .foregroundColor(object.isFolder ? .blue : .secondary)
                                         Text(displayName(for: object.key))
                                             .fontWeight(object.isFolder ? .medium : .regular)
                                     }
@@ -226,62 +135,6 @@
                                         } else {
                                             appState.downloadFile(key: object.key)
                                         }
-                                        appState.log(
-                                            "Utilisateur a double-cliqué sur : \(object.key)")
-                                    }
-                                    .onTapGesture {
-                                        selectedObjectIds = [object.id]
-                                        appState.log("Utilisateur a cliqué sur : \(object.key)")
-                                    }
-                                    .contentShape(Rectangle())  // Ensure tap works on empty space in cell
-                                    .contextMenu {
-                                        Button("Information") {
-                                            selectedObjectIds = [object.id]
-                                        }
-
-                                        Button("Renommer") {
-                                            renameItemKey = object.key
-                                            renameItemName = displayName(for: object.key)
-                                            renameIsFolder = object.isFolder
-                                            showingRename = true
-                                            // Ensure selection so user sees what they rename
-                                            selectedObjectIds = [object.id]
-                                        }
-
-                                        if !object.isFolder {
-                                            Button("Aperçu rapide") {
-                                                appState.previewFile(key: object.key)
-                                            }
-
-                                            Button("Télécharger") {
-                                                appState.downloadFile(key: object.key)
-                                            }
-
-                                            Menu("Copier le lien de partage") {
-                                                Button("Valide 1 heure") {
-                                                    appState.copyPresignedURL(
-                                                        for: object.key, expires: 3600)
-                                                }
-                                                Button("Valide 24 heures") {
-                                                    appState.copyPresignedURL(
-                                                        for: object.key, expires: 86400)
-                                                }
-                                            }
-                                        } else {
-                                            Button("Télécharger le dossier") {
-                                                appState.downloadFolder(key: object.key)
-                                            }
-                                        }
-
-                                        Divider()
-
-                                        Button("Supprimer", role: .destructive) {
-                                            deleteItemKey = object.key
-                                            deleteIsFolder = object.isFolder
-                                            // Ensure selection so user sees what they delete
-                                            selectedObjectIds = [object.id]
-                                            showingDelete = true
-                                        }
                                     }
                                 }
                                 .width(min: 200, ideal: 300)
@@ -292,7 +145,7 @@
                                 }
                                 .width(min: 80, ideal: 100)
 
-                                TableColumn("Date Modified") { object in
+                                TableColumn("Date Modification") { object in
                                     Text(
                                         object.lastModified.formatted(
                                             date: .abbreviated, time: .shortened)
@@ -301,7 +154,7 @@
                                 }
                                 .width(min: 150, ideal: 180)
 
-                                TableColumn("Size") { object in
+                                TableColumn("Taille") { object in
                                     Text(object.isFolder ? "--" : formatBytes(object.size))
                                         .foregroundColor(.secondary)
                                 }
@@ -309,340 +162,245 @@
                             }
                         }
 
+                        // Status Bar
+                        HStack(spacing: 16) {
+                            let folderCount = appState.objects.filter {
+                                $0.isFolder && $0.key != ".."
+                            }.count
+                            let fileCount = appState.objects.filter { !$0.isFolder }.count
+                            let totalSize = appState.objects.reduce(0) { $0 + $1.size }
+
+                            Text("\(folderCount) dossier\(folderCount > 1 ? "s" : "")")
+                            Text("\(fileCount) fichier\(fileCount > 1 ? "s" : "")")
+                            Text(formatBytes(totalSize))
+                                .fontWeight(.medium)
+
+                            Spacer()
+
+                            Button("Déconnexion") {
+                                appState.disconnect()
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.blue.opacity(0.1))
                     }
+                    .frame(minWidth: 400)
 
-                    // Status Bar
-                    HStack(spacing: 16) {
-                        let folderCount = appState.objects.filter { $0.isFolder }.count
-                        let fileCount = appState.objects.filter { !$0.isFolder }.count
-                        let totalSize = appState.objects.reduce(0) { $0 + $1.size }
+                    // Inspector / Detail View
+                    if let selected = selectedObject {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Détails")
+                                .font(.headline)
 
-                        Text("\(folderCount) dossier\(folderCount > 1 ? "s" : "")")
-                        Text("\(fileCount) fichier\(fileCount > 1 ? "s" : "")")
-                        Text(formatBytes(totalSize))
-                            .fontWeight(.medium)
+                            Divider()
 
-                        Spacer()
-                    }
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.blue)
-                    .customBorder(Color.blue, width: 1, edges: [.top])
-                }
-                .frame(minWidth: 300)
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    DetailItem(label: "Nom", value: displayName(for: selected.key))
+                                    DetailItem(
+                                        label: "Clé complète", value: selected.key,
+                                        isTextSelected: true)
 
-                // Inspector / Detail View
-                if let selected = selectedObject {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Détails")
-                            .font(.headline)
+                                    if !selected.isFolder {
+                                        DetailItem(
+                                            label: "Taille", value: formatBytes(selected.size))
+                                        DetailItem(
+                                            label: "Dernière modification",
+                                            value: selected.lastModified.formatted())
 
-                        Divider()
-
-                        Group {
-                            Text("Nom :")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(displayName(for: selected.key))
-                                .textSelection(.enabled)
-
-                            Text("Clé complète :")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(selected.key)
-                                .font(.caption)
-                                .textSelection(.enabled)
-
-                            if !selected.isFolder {
-                                Text("Taille :")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(formatBytes(selected.size))
-
-                                Text("Dernière modification :")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(selected.lastModified.formatted())
-
-                                if appState.isMetadataLoading {
-                                    ProgressView().controlSize(.small).padding(.top, 4)
-                                } else if let alias = appState.selectedObjectMetadata[
-                                    "x-amz-meta-cse-key-alias"]
-                                {
-                                    Divider()
-                                    Text("Clé de Chiffrement (CSE) :")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    HStack {
-                                        Image(systemName: "lock.fill")
-                                            .foregroundColor(.orange)
-                                        Text(alias)
-                                            .fontWeight(.semibold)
-                                    }
-                                }
-
-                                Divider()
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Permissions")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-
-                                    if appState.isACLLoading {
-                                        HStack {
-                                            ProgressView()
-                                                .controlSize(.small)
-                                            Text("Chargement des ACL...")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    } else if let isPublic = appState.selectedObjectIsPublic {
-                                        HStack {
-                                            Image(systemName: isPublic ? "globe" : "lock.fill")
-                                                .foregroundColor(isPublic ? .green : .secondary)
-                                            Text(isPublic ? "Public" : "Private")
-                                                .font(.subheadline)
-
-                                            Spacer()
-
-                                            Button(isPublic ? "Rendre Privé" : "Rendre Public") {
-                                                appState.togglePublicAccess(for: selected.key)
+                                        if appState.isMetadataLoading {
+                                            ProgressView().controlSize(.small)
+                                        } else if let alias = appState.selectedObjectMetadata[
+                                            "x-amz-meta-cse-key-alias"]
+                                        {
+                                            Divider()
+                                            HStack {
+                                                Image(systemName: "lock.fill").foregroundColor(
+                                                    .orange)
+                                                VStack(alignment: .leading) {
+                                                    Text("Chiffrement CSE").font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                    Text(alias).fontWeight(.semibold)
+                                                }
                                             }
-                                            .buttonStyle(.link)
-                                            .font(.caption)
                                         }
-                                    } else {
-                                        Text("Impossible de charger les ACL")
-                                            .font(.caption)
-                                            .foregroundColor(.red)
-                                    }
-                                }
 
-                                Divider()
+                                        Divider()
 
-                                Text("Historique des versions")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                if appState.isVersionsLoading {
-                                    HStack {
-                                        ProgressView().controlSize(.small)
-                                        Text("Chargement des versions...").font(.caption)
-                                            .foregroundColor(
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Permissions").font(.caption).foregroundColor(
                                                 .secondary)
-                                    }
-                                } else if appState.selectedObjectVersions.isEmpty {
-                                    Text("Aucune version trouvée").font(.caption).foregroundColor(
-                                        .secondary)
-                                } else {
-                                    ScrollView {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            ForEach(appState.selectedObjectVersions) { version in
-                                                VStack(alignment: .leading, spacing: 2) {
+                                            if appState.isACLLoading {
+                                                ProgressView().controlSize(.small)
+                                            } else if let isPublic = appState.selectedObjectIsPublic
+                                            {
+                                                HStack {
+                                                    Image(
+                                                        systemName: isPublic ? "globe" : "lock.fill"
+                                                    )
+                                                    .foregroundColor(isPublic ? .green : .secondary)
+                                                    Text(isPublic ? "Public" : "Privé")
+                                                    Spacer()
+                                                    Button(
+                                                        isPublic ? "Rendre Privé" : "Rendre Public"
+                                                    ) {
+                                                        appState.togglePublicAccess(
+                                                            for: selected.key)
+                                                    }
+                                                    .buttonStyle(.link)
+                                                    .font(.caption)
+                                                }
+                                            }
+                                        }
+
+                                        Divider()
+
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Versions").font(.caption).foregroundColor(
+                                                .secondary)
+                                            if appState.isVersionsLoading {
+                                                ProgressView().controlSize(.small)
+                                            } else {
+                                                ForEach(appState.selectedObjectVersions.prefix(5)) {
+                                                    version in
                                                     HStack {
                                                         Text(
                                                             version.lastModified.formatted(
                                                                 date: .abbreviated, time: .shortened
                                                             )
                                                         )
-                                                        .font(.caption)
-                                                        .fontWeight(
-                                                            version.isLatest ? .bold : .regular)
-
+                                                        .font(.system(size: 10))
                                                         if version.isLatest {
-                                                            Text("Dernière")
-                                                                .font(
-                                                                    .system(size: 8, weight: .bold)
-                                                                )
-                                                                .padding(.horizontal, 4)
-                                                                .padding(.vertical, 1)
-                                                                .background(
-                                                                    Color.green.opacity(0.2)
-                                                                )
-                                                                .foregroundColor(.green)
-                                                                .cornerRadius(4)
+                                                            Text("Actuelle").font(
+                                                                .system(size: 8, weight: .bold)
+                                                            )
+                                                            .foregroundColor(.green)
                                                         }
-
-                                                        if version.isDeleteMarker {
-                                                            Image(systemName: "trash")
-                                                                .font(.caption2)
-                                                                .foregroundColor(.red)
-                                                        }
-
                                                         Spacer()
-
-                                                        if !version.isDeleteMarker {
-                                                            HStack(spacing: 8) {
-                                                                Button(action: {
-                                                                    appState.previewFile(
-                                                                        key: version.key,
-                                                                        versionId: version.versionId
-                                                                    )
-                                                                }) {
-                                                                    Image(systemName: "eye")
-                                                                }
-                                                                .buttonStyle(.plain)
-
-                                                                Button(action: {
-                                                                    appState.downloadFile(
-                                                                        key: version.key,
-                                                                        versionId: version.versionId
-                                                                    )
-                                                                }) {
-                                                                    Image(
-                                                                        systemName:
-                                                                            "arrow.down.circle")
-                                                                }
-                                                                .buttonStyle(.plain)
-                                                            }
-                                                        }
+                                                        Button(action: {
+                                                            appState.downloadFile(
+                                                                key: version.key,
+                                                                versionId: version.versionId)
+                                                        }) {
+                                                            Image(systemName: "arrow.down.circle")
+                                                        }.buttonStyle(.plain)
                                                     }
-
-                                                    if !version.isDeleteMarker {
-                                                        Text(formatBytes(version.size))
-                                                            .font(.system(size: 9))
-                                                            .foregroundColor(.secondary)
-                                                    } else {
-                                                        Text("Marqueur de suppression")
-                                                            .font(.system(size: 9))
-                                                            .foregroundColor(.red)
-                                                    }
+                                                    .padding(4)
+                                                    .background(Color.secondary.opacity(0.1))
+                                                    .cornerRadius(4)
                                                 }
-                                                .padding(4)
-                                                .background(Color.secondary.opacity(0.1))
-                                                .cornerRadius(4)
                                             }
                                         }
+                                    } else {
+                                        // Folder Stats
+                                        if isStatsLoading {
+                                            ProgressView("Calcul des stats...").controlSize(.small)
+                                        } else if let stats = folderStats {
+                                            DetailItem(
+                                                label: "Contenu", value: "\(stats.count) objets")
+                                            DetailItem(
+                                                label: "Taille totale",
+                                                value: formatBytes(stats.size))
+                                        }
                                     }
-                                    .frame(maxHeight: 200)
                                 }
+                            }
 
-                                Divider()
+                            Spacer()
 
-                                Text("Partage temporaire")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                HStack {
-                                    Button("Lien 1h") {
-                                        appState.copyPresignedURL(for: selected.key, expires: 3600)
-                                    }
-                                    .buttonStyle(.bordered)
-
-                                    Button("Lien 24h") {
-                                        appState.copyPresignedURL(for: selected.key, expires: 86400)
-                                    }
-                                    .buttonStyle(.bordered)
-                                }
-
-                                Spacer()
-
-                                Button("Télécharger la dernière version") {
+                            if !selected.isFolder {
+                                Button("Télécharger") {
                                     appState.downloadFile(key: selected.key)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .frame(maxWidth: .infinity)
-                            } else {
-                                Divider()
-                                Text("Statistiques du dossier :")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                if isStatsLoading {
-                                    HStack {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .scaleEffect(0.8)
-                                        Text("Calcul en cours...")
-                                            .foregroundColor(.secondary)
-                                            .font(.caption)
-                                    }
-                                } else if let stats = folderStats {
-                                    Text("Objets : \(stats.count)")
-                                    Text("Taille totale : \(formatBytes(stats.size))")
-                                } else {
-                                    Text("Échec du chargement des stats")
-                                        .font(.caption)
-                                        .foregroundColor(.red)
-                                }
-
-                                Spacer()
                             }
                         }
-                    }
-                    .padding()
-                    .frame(minWidth: 200, maxWidth: 300)
-                    .background(Color(NSColor.windowBackgroundColor))
-                    .task(id: selected.id) {
-                        if selected.isFolder {
-                            isStatsLoading = true
-                            folderStats = nil
-                            folderStats = await appState.calculateFolderStats(
-                                folderKey: selected.key)
-                            isStatsLoading = false
-                        } else {
-                            appState.loadVersions(for: selected.key)
-                            appState.loadACL(for: selected.key)
-                            appState.loadMetadata(for: selected.key)
+                        .padding()
+                        .frame(minWidth: 250, maxWidth: 350)
+                        .background(Color(NSColor.windowBackgroundColor))
+                        .task(id: selected.id) {
+                            if selected.isFolder {
+                                isStatsLoading = true
+                                folderStats = await appState.calculateFolderStats(
+                                    folderKey: selected.key)
+                                isStatsLoading = false
+                            } else {
+                                appState.loadVersions(for: selected.key)
+                                appState.loadACL(for: selected.key)
+                                appState.loadMetadata(for: selected.key)
+                            }
                         }
                     }
                 }
             }
             .quickLookPreview($appState.quickLookURL)
+            .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
+                TextField("Nom du dossier", text: $newFolderName)
+                Button("Créer") {
+                    if !newFolderName.isEmpty {
+                        appState.createFolder(name: newFolderName)
+                        newFolderName = ""
+                    }
+                }
+                Button("Annuler", role: .cancel) { newFolderName = "" }
+            }
+            .alert("Renommer", isPresented: $showingRename) {
+                TextField("Nouveau nom", text: $renameItemName)
+                Button("Renommer") {
+                    if !renameItemName.isEmpty {
+                        appState.renameObject(
+                            oldKey: renameItemKey, newName: renameItemName, isFolder: renameIsFolder
+                        )
+                    }
+                }
+                Button("Annuler", role: .cancel) { renameItemName = "" }
+            }
+            .alert("Suppression", isPresented: $showingDelete) {
+                Button("Supprimer", role: .destructive) {
+                    if deleteIsFolder {
+                        appState.deleteFolder(key: deleteItemKey)
+                    } else {
+                        appState.deleteObject(key: deleteItemKey)
+                    }
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text(
+                    deleteIsFolder
+                        ? "Tout le contenu du dossier sera supprimé."
+                        : "Cette action est irréversible.")
+            }
             .fileImporter(
-                isPresented: $showingFileImporter,
-                allowedContentTypes: [.item],
+                isPresented: $showingFileImporter, allowedContentTypes: [.item],
                 allowsMultipleSelection: true
             ) { result in
-                switch result {
-                case .success(let urls):
-                    for url in urls {
-                        appState.uploadFile(url: url)
-                    }
-                case .failure(let error):
-                    appState.showToast(
-                        "File selection failed: \(error.localizedDescription)", type: .error)
+                if case .success(let urls) = result {
+                    for url in urls { appState.uploadFile(url: url) }
                 }
             }
-            .background(
-                Color.clear
-                    .fileImporter(
-                        isPresented: $showingFolderImporter,
-                        allowedContentTypes: [.folder],
-                        allowsMultipleSelection: false
-                    ) { result in
-                        switch result {
-                        case .success(let urls):
-                            if let url = urls.first {
-                                appState.uploadFolder(url: url)
-                            }
-                        case .failure(let error):
-                            appState.showToast(
-                                "Folder selection failed: \(error.localizedDescription)",
-                                type: .error)
-                        }
-                    }
-            )
+            .fileImporter(
+                isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
+                allowsMultipleSelection: false
+            ) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    appState.uploadFolder(url: url)
+                }
+            }
         }
 
         func displayName(for key: String) -> String {
-            // Remove prefix of current path to show only filename/foldername
+            if key == ".." { return "Dossier parent" }
             let prefix = appState.currentPath.joined(separator: "/")
-
             var name = key
             let fullPrefix = prefix.isEmpty ? "" : prefix + "/"
             if !prefix.isEmpty, name.hasPrefix(fullPrefix) {
                 name = String(name.dropFirst(fullPrefix.count))
             }
-
-            // Remove trailing slash for display if folder
-            if name.hasSuffix("/") {
-                name = String(name.dropLast())
-            }
-
+            if name.hasSuffix("/") { name = String(name.dropLast()) }
             return name
         }
 
@@ -653,66 +411,43 @@
             return formatter.string(fromByteCount: bytes)
         }
 
-        // Cache for file type descriptions
-        @State private var typeCache: [String: String] = [:]
-
         func getType(for name: String, isFolder: Bool) -> String {
-            if isFolder {
-                return UTType.folder.localizedDescription ?? "Folder"
-            }
+            if isFolder { return UTType.folder.localizedDescription ?? "Dossier" }
             let ext = (name as NSString).pathExtension.lowercased()
-            if ext.isEmpty { return "File" }
-
-            // Return cached value if exists
-            if let cached = typeCache[ext] {
-                return cached
-            }
-
-            // Return fast placeholder (UTType or Extension) and fetch real one async
+            if let cached = typeCache[ext] { return cached }
             let fastDesc = UTType(filenameExtension: ext)?.localizedDescription ?? ext.uppercased()
-
-            // Trigger async lookup for high-fidelity description
             Task {
-                // Check again inside task to avoid race (though view update handles it)
-                if typeCache[ext] != nil { return }
-
-                let highFidelityDesc = getHighFidelityType(for: ext)
-                // Update UI on Main Thread
-                await MainActor.run {
-                    typeCache[ext] = highFidelityDesc
-                }
+                let highFid = getHighFidelityType(for: ext)
+                await MainActor.run { typeCache[ext] = highFid }
             }
-
-            return fastDesc  // Show this immediately while loading
+            return fastDesc
         }
 
-        // Helper for expensive lookup (non-blocking)
         func getHighFidelityType(for ext: String) -> String {
-            // 1. Try simple UTType first (Fast check for common types)
-            // But we already used it for placeholder, so we want better.
-            // Actually, if UTType gives a specific name (not "Dynamic" or "Data"), keep it?
-            // User wanted "Document SQLiteStudio" for .db. UTType often gives generic.
-
-            // We do the file trick.
             let tempDir = FileManager.default.temporaryDirectory
             let tempFile = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(
                 ext)
-
             do {
-                // Create empty file
                 try "".write(to: tempFile, atomically: false, encoding: .utf8)
                 let values = try tempFile.resourceValues(forKeys: [.localizedTypeDescriptionKey])
-
                 let desc = values.localizedTypeDescription
                 try? FileManager.default.removeItem(at: tempFile)
-
                 if let validDesc = desc { return validDesc }
-            } catch {
-                // Ignore
-            }
-
-            // Fallback to UTType or UPPERCASE
+            } catch {}
             return UTType(filenameExtension: ext)?.localizedDescription ?? ext.uppercased()
+        }
+    }
+
+    struct DetailItem: View {
+        let label: String
+        let value: String
+        var isTextSelected: Bool = false
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label).font(.caption).foregroundColor(.secondary)
+                Text(value).font(.subheadline).textSelection(isTextSelected ? .enabled : .disabled)
+            }
         }
     }
 #endif
