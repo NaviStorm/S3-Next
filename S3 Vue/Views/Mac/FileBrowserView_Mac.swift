@@ -93,10 +93,10 @@
                                     appState.selectedEncryptionAlias = nil
                                 }) {
                                     HStack {
-                                        Text("Sans chiffrement")
                                         if appState.selectedEncryptionAlias == nil {
                                             Image(systemName: "checkmark")
                                         }
+                                        Text("Sans chiffrement")
                                     }
                                 }
 
@@ -105,10 +105,10 @@
                                         appState.selectedEncryptionAlias = alias
                                     }) {
                                         HStack {
-                                            Text(alias)
                                             if appState.selectedEncryptionAlias == alias {
                                                 Image(systemName: "checkmark")
                                             }
+                                            Text(alias)
                                         }
                                     }
                                 }

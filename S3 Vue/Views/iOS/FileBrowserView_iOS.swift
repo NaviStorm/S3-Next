@@ -256,10 +256,10 @@ import UniformTypeIdentifiers
                                 appState.selectedEncryptionAlias = nil
                             }) {
                                 HStack {
-                                    Label("Sans chiffrement", systemImage: "unlock")
-                                    if appState.selectedEncryptionAlias == nil {
-                                        Image(systemName: "checkmark")
-                                    }
+                                    Label(
+                                        "Sans chiffrement",
+                                        systemImage: appState.selectedEncryptionAlias == nil
+                                            ? "checkmark" : "unlock")
                                 }
                             }
 
@@ -267,12 +267,10 @@ import UniformTypeIdentifiers
                                 Button(action: {
                                     appState.selectedEncryptionAlias = alias
                                 }) {
-                                    HStack {
-                                        Label(alias, systemImage: "key.fill")
-                                        if appState.selectedEncryptionAlias == alias {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
+                                    Label(
+                                        alias,
+                                        systemImage: appState.selectedEncryptionAlias == alias
+                                            ? "checkmark" : "key.fill")
                                 }
                             }
                         }
