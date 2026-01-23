@@ -130,39 +130,6 @@
                         }
                         Button("Annuler", role: .cancel) { newFolderName = "" }
                     }
-                    .fileImporter(
-                        isPresented: $showingFileImporter,
-                        allowedContentTypes: [.data],
-                        allowsMultipleSelection: true
-                    ) { result in
-                        switch result {
-                        case .success(let urls):
-                            for url in urls {
-                                appState.uploadFile(url: url)
-                            }
-                        case .failure(let error):
-                            appState.showToast(
-                                "File selection failed: \(error.localizedDescription)", type: .error
-                            )
-                        }
-                    }
-                    .fileImporter(
-                        isPresented: $showingFolderImporter,
-                        allowedContentTypes: [.folder],
-                        allowsMultipleSelection: false
-                    ) { result in
-                        switch result {
-                        case .success(let urls):
-                            if let url = urls.first {
-                                appState.uploadFolder(url: url)
-                            }
-                        case .failure(let error):
-                            appState.showToast(
-                                "Folder selection failed: \(error.localizedDescription)",
-                                type: .error
-                            )
-                        }
-                    }
                     .alert("Renommer", isPresented: $showingRename) {
                         TextField("Nouveau nom", text: $renameItemName)
                         Button("Renommer") {
@@ -565,6 +532,40 @@
                 }
             }
             .quickLookPreview($appState.quickLookURL)
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    for url in urls {
+                        appState.uploadFile(url: url)
+                    }
+                case .failure(let error):
+                    appState.showToast(
+                        "File selection failed: \(error.localizedDescription)", type: .error)
+                }
+            }
+            .background(
+                Color.clear
+                    .fileImporter(
+                        isPresented: $showingFolderImporter,
+                        allowedContentTypes: [.folder],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        switch result {
+                        case .success(let urls):
+                            if let url = urls.first {
+                                appState.uploadFolder(url: url)
+                            }
+                        case .failure(let error):
+                            appState.showToast(
+                                "Folder selection failed: \(error.localizedDescription)",
+                                type: .error)
+                        }
+                    }
+            )
         }
 
         func displayName(for key: String) -> String {

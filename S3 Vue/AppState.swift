@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import SwiftUI
 
-final class S3AppState: ObservableObject {
+public final class S3AppState: ObservableObject {
     @Published var isLoggedIn = false
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -506,7 +506,11 @@ final class S3AppState: ObservableObject {
     }
 
     func uploadFile(url: URL) {
-        guard let client = client else { return }
+        guard let client = client else {
+            log("[Upload File] Error: Client is nil")
+            return
+        }
+        log("[Upload File] Start: \(url.lastPathComponent)")
 
         let filename = url.lastPathComponent
         let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"

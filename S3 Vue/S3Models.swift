@@ -18,31 +18,31 @@ enum S3Error: Error, LocalizedError {
     }
 }
 
-struct S3Object: Identifiable, Hashable {
-    var id: String { key }
-    let key: String
-    let size: Int64
-    let lastModified: Date
-    let isFolder: Bool
+public struct S3Object: Identifiable, Hashable {
+    public var id: String { key }
+    public let key: String
+    public let size: Int64
+    public let lastModified: Date
+    public let isFolder: Bool
 }
 
-struct S3Version: Identifiable, Hashable {
-    var id: String { versionId }
-    let key: String
-    let versionId: String
-    let isLatest: Bool
-    let lastModified: Date
-    let size: Int64
-    let isDeleteMarker: Bool
+public struct S3Version: Identifiable, Hashable {
+    public var id: String { versionId }
+    public let key: String
+    public let versionId: String
+    public let isLatest: Bool
+    public let lastModified: Date
+    public let size: Int64
+    public let isDeleteMarker: Bool
 }
 
-enum ToastType {
+public enum ToastType {
     case info
     case error
     case success
     case warning
 
-    var color: Color {
+    public var color: Color {
         switch self {
         case .info: return .blue
         case .error: return .red
@@ -51,7 +51,7 @@ enum ToastType {
         }
     }
 
-    var icon: String {
+    public var icon: String {
         switch self {
         case .info: return "info.circle.fill"
         case .error: return "exclamationmark.triangle.fill"

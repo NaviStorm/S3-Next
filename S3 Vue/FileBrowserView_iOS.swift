@@ -54,6 +54,7 @@ import UniformTypeIdentifiers
                         renameItemKey: $renameItemKey,
                         renameItemName: $renameItemName,
                         renameIsFolder: $renameIsFolder,
+                        showingFileImporter: $showingFileImporter,
                         showingFolderImporter: $showingFolderImporter,
                         showingDelete: $showingDelete,
                         deleteItemKey: $deleteItemKey,
@@ -66,18 +67,29 @@ import UniformTypeIdentifiers
                         infoSheet: { obj in infoSheet(for: obj) }
                     )
                 )
-                .sheet(isPresented: $showingTransfers) {
-                    NavigationStack {
-                        TransferProgressView()
-                            .navigationTitle("Transferts")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Fermer") { showingTransfers = false }
-                                }
-                            }
+                .fileImporter(
+                    isPresented: $showingFileImporter, allowedContentTypes: [.item],
+                    allowsMultipleSelection: true
+                ) { result in
+                    if case .success(let urls) = result {
+                        for url in urls {
+                            appState.log("[FilePicker] Picked: \(url.lastPathComponent)")
+                            appState.uploadFile(url: url)
+                        }
                     }
                 }
+                .background(
+                    Color.clear
+                        .fileImporter(
+                            isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
+                            allowsMultipleSelection: false
+                        ) { result in
+                            if case .success(let urls) = result, let url = urls.first {
+                                appState.log("[FolderPicker] Picked: \(url.path)")
+                                appState.uploadFolder(url: url)
+                            }
+                        }
+                )
             }
         }
 
@@ -401,6 +413,7 @@ import UniformTypeIdentifiers
         @Binding var renameItemKey: String
         @Binding var renameItemName: String
         @Binding var renameIsFolder: Bool
+        @Binding var showingFileImporter: Bool
         @Binding var showingFolderImporter: Bool
         @Binding var showingDelete: Bool
         @Binding var deleteItemKey: String
@@ -435,14 +448,6 @@ import UniformTypeIdentifiers
                         }
                     }
                     Button("Annuler", role: .cancel) { renameItemName = "" }
-                }
-                .fileImporter(
-                    isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
-                    allowsMultipleSelection: false
-                ) { result in
-                    if case .success(let urls) = result, let url = urls.first {
-                        appState.uploadFolder(url: url)
-                    }
                 }
                 .alert("Supprimer", isPresented: $showingDelete) {
                     Button("Supprimer", role: .destructive) {

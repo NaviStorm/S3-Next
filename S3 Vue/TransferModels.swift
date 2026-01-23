@@ -1,14 +1,14 @@
 import Foundation
 import SwiftUI
 
-enum TransferType: String, Codable {
+public enum TransferType: String, Codable {
     case upload
     case download
     case rename
     case delete
 }
 
-enum TransferStatus: String, Codable {
+public enum TransferStatus: String, Codable {
     case pending
     case inProgress
     case completed
@@ -16,13 +16,13 @@ enum TransferStatus: String, Codable {
     case cancelled
 }
 
-struct TransferTask: Identifiable {
-    let id = UUID()
-    let type: TransferType
-    let name: String
-    var progress: Double  // 0.0 to 1.0
-    var status: TransferStatus
-    var errorMessage: String?
-    var totalFiles: Int
-    var completedFiles: Int
+public struct TransferTask: Identifiable {
+    public let id = UUID()
+    public let type: TransferType
+    public let name: String
+    public var progress: Double  // 0.0 to 1.0
+    public var status: TransferStatus
+    public var errorMessage: String?
+    public var totalFiles: Int
+    public var completedFiles: Int
 }
