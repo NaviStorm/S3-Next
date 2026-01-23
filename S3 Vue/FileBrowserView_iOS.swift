@@ -23,6 +23,8 @@ import UniformTypeIdentifiers
         @State private var deleteItemKey = ""
         @State private var deleteIsFolder = false
 
+        @State private var showingTransfers = false
+
         @State private var selectedItemForInfo: S3Object?
         @State private var infoFolderStats: (count: Int, size: Int64)?
         @State private var isInfoStatsLoading = false
@@ -61,7 +63,20 @@ import UniformTypeIdentifiers
                         appState: appState,
                         selectedVerObject: $selectedVerObject,
                         infoSheet: { obj in infoSheet(for: obj) }
-                    ))
+                    )
+                )
+                .sheet(isPresented: $showingTransfers) {
+                    NavigationStack {
+                        TransferProgressView()
+                            .navigationTitle("Transferts")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Fermer") { showingTransfers = false }
+                                }
+                            }
+                    }
+                }
             }
         }
 
@@ -226,6 +241,19 @@ import UniformTypeIdentifiers
                         }
                     } label: {
                         Image(systemName: "plus.app")
+                    }
+
+                    Button(action: { showingTransfers = true }) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "arrow.up.arrow.down.circle")
+                            if appState.transferTasks.contains(where: { $0.status == .inProgress })
+                            {
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
                     }
 
                     Button(action: { appState.disconnect() }) {

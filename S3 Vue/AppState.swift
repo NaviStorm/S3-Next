@@ -269,11 +269,7 @@ final class S3AppState: ObservableObject {
         let taskId = downloadTask.id
         transferTasks.append(downloadTask)
 
-        #if os(macOS)
-            // No longer set global isLoading to true for file downloads on macOS
-        #else
-            isLoading = true
-        #endif
+        // Global isLoading is no longer set to true for transfers to avoid blocking the UI
 
         let logSuffix = versionId != nil ? " (Version: \(versionId!))" : ""
         log("[Download START] \(key)\(logSuffix)")
@@ -291,9 +287,6 @@ final class S3AppState: ObservableObject {
                     }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.log("[Download SUCCESS] \(key)")
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
@@ -301,9 +294,6 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .cancelled
                     }
                     self.activeTasks.removeValue(forKey: taskId)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -313,9 +303,6 @@ final class S3AppState: ObservableObject {
                     }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Download Failed: \(error.localizedDescription)", type: .error)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
                 self.log("[Download ERROR] \(error.localizedDescription)")
             }
@@ -472,11 +459,7 @@ final class S3AppState: ObservableObject {
         let taskId = transferTask.id
         transferTasks.append(transferTask)
 
-        #if os(macOS)
-            // No longer set global isLoading to true for file uploads on macOS
-        #else
-            isLoading = true
-        #endif
+        // Global isLoading is no longer set to true for transfers to avoid blocking the UI
 
         let task = Task {
             // Security scoped resource check (for sandbox)
@@ -498,9 +481,6 @@ final class S3AppState: ObservableObject {
                     self.activeTasks.removeValue(forKey: taskId)
                     self.log("[Upload SUCCESS] \(key)")
                     self.loadObjects()
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
@@ -508,9 +488,6 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .cancelled
                     }
                     self.activeTasks.removeValue(forKey: taskId)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -520,9 +497,6 @@ final class S3AppState: ObservableObject {
                     }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Upload Failed: \(error.localizedDescription)", type: .error)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
                 self.log("[Upload ERROR] \(error.localizedDescription)")
             }
@@ -543,11 +517,7 @@ final class S3AppState: ObservableObject {
         let taskId = transferTask.id
         transferTasks.append(transferTask)
 
-        #if os(macOS)
-            // No longer set global isLoading to true
-        #else
-            isLoading = true
-        #endif
+        // Global isLoading is no longer set to true for transfers to avoid blocking the UI
 
         log("[Upload Folder START] \(folderName) -> \(targetPrefix)")
 
@@ -610,9 +580,6 @@ final class S3AppState: ObservableObject {
                     self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Dossier envoyé avec succès", type: .success)
                     self.loadObjects()
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
@@ -620,9 +587,6 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .cancelled
                     }
                     self.activeTasks.removeValue(forKey: taskId)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch {
                 log("[Upload Folder ERROR] \(error.localizedDescription)")
@@ -633,9 +597,6 @@ final class S3AppState: ObservableObject {
                     }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Échec de l'envoi du dossier", type: .error)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             }
         }
@@ -652,11 +613,7 @@ final class S3AppState: ObservableObject {
         let taskId = transferTask.id
         transferTasks.append(transferTask)
 
-        #if os(macOS)
-            // No longer set global isLoading to true
-        #else
-            isLoading = true
-        #endif
+        // Global isLoading is no longer set to true for transfers to avoid blocking the UI
 
         log("[Download Folder START] \(key)")
 
@@ -715,9 +672,6 @@ final class S3AppState: ObservableObject {
                     }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Dossier téléchargé", type: .success)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch is CancellationError {
                 DispatchQueue.main.async {
@@ -725,9 +679,6 @@ final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .cancelled
                     }
                     self.activeTasks.removeValue(forKey: taskId)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             } catch {
                 log("[Download Folder ERROR] \(error.localizedDescription)")
@@ -738,9 +689,6 @@ final class S3AppState: ObservableObject {
                     }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.showToast("Échec du téléchargement", type: .error)
-                    #if !os(macOS)
-                        self.isLoading = false
-                    #endif
                 }
             }
         }
@@ -786,7 +734,7 @@ final class S3AppState: ObservableObject {
     func deleteObject(key: String) {
         guard let client = client else { return }
         log("[DELETE] Single Object: \(key)")
-        isLoading = true
+        // Global isLoading is no longer set to true for single deletes
         Task {
             do {
                 try await client.deleteObject(key: key)
@@ -936,7 +884,7 @@ final class S3AppState: ObservableObject {
             }
             activeTasks[taskId] = renameTask
         } else {
-            isLoading = true
+            // File rename is two steps (copy+delete), but fast.
             Task {
                 do {
                     try await client.copyObject(sourceKey: oldKey, destinationKey: newKey)
