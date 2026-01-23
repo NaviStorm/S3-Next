@@ -144,7 +144,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding()
         #if os(macOS)
-            .frame(width: 450, height: 400)
+            .frame(minWidth: 800, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
         #endif
         .navigationTitle("Réglages")
         .task {

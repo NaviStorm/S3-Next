@@ -3,6 +3,9 @@ import SwiftUI
 @main
 struct S3_VueApp: App {
     @StateObject private var appState = S3AppState()
+    #if os(macOS)
+        @Environment(\.openWindow) var openWindow
+    #endif
 
     var body: some Scene {
         WindowGroup {
@@ -11,11 +14,13 @@ struct S3_VueApp: App {
         }
         #if os(macOS)
             .commands {
-                CommandMenu("Débogage") {
-                    OpenDebugWindowButton()
+                CommandGroup(replacing: .appSettings) {
+                    SettingsButton()
                 }
-                CommandMenu("Fenêtre") {
+                CommandGroup(after: .windowList) {
+                    Divider()
                     OpenTransfersWindowButton()
+                    OpenDebugWindowButton()
                 }
             }
         #endif
@@ -35,17 +40,28 @@ struct S3_VueApp: App {
         #endif
 
         #if os(macOS)
-            Settings {
+            Window("Réglages", id: "app-settings") {
                 NavigationStack {
                     SettingsView()
                         .environmentObject(appState)
                 }
             }
+            .windowResizability(.contentSize)
         #endif
     }
 }
 
 #if os(macOS)
+    struct SettingsButton: View {
+        @Environment(\.openWindow) var openWindow
+        var body: some View {
+            Button("Réglages...") {
+                openWindow(id: "app-settings")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+    }
+
     struct OpenDebugWindowButton: View {
         @Environment(\.openWindow) var openWindow
 
