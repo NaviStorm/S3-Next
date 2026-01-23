@@ -103,10 +103,10 @@ struct RibbonView: View {
                                 RibbonGroup(label: "Téléchargement vers S3") {
                                     RibbonButton(
                                         title: "Fichiers", icon: "doc.badge.plus",
-                                        action: onUploadFile, color: .blue)
+                                        color: .blue, action: onUploadFile)
                                     RibbonButton(
                                         title: "Dossier", icon: "folder.badge.plus",
-                                        action: onUploadFolder, color: .blue)
+                                        color: .blue, action: onUploadFolder)
                                 }
 
                                 RibbonGroup(label: "Chiffrement (Sticky)") {
@@ -171,7 +171,7 @@ struct RibbonView: View {
                                 RibbonGroup(label: "Objets") {
                                     RibbonButton(
                                         title: "Nouveau", icon: "plus.rectangle.on.folder.fill",
-                                        action: onCreateFolder, color: .blue)
+                                        color: .blue, action: onCreateFolder)
                                     RibbonButton(
                                         title: "Renommer", icon: "pencil.circle.fill",
                                         action: onRename)
@@ -185,7 +185,7 @@ struct RibbonView: View {
                                         title: "Aperçu", icon: "eye.fill", action: onPreview)
                                     RibbonButton(
                                         title: "Télécharger", icon: "arrow.down.doc.fill",
-                                        action: onDownload, color: .green)
+                                        color: .green, action: onDownload)
                                 }
                             }
                             .transition(
@@ -253,6 +253,7 @@ struct RibbonView: View {
 
             Divider()
         }
+        .frame(height: 125)  // Hauteur totale fixe: Header (~30px) + Body (95px)
     }
 }
 

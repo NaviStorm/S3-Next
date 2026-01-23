@@ -73,6 +73,7 @@
                         }
                     }
                 )
+                .fixedSize(horizontal: false, vertical: true)
 
                 // Breadcrumbs / Path Info Bar (Discrète)
                 HStack {
@@ -446,7 +447,11 @@
         var body: some View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.caption).foregroundColor(.secondary)
-                Text(value).font(.subheadline).textSelection(isTextSelected ? .enabled : .disabled)
+                if isTextSelected {
+                    Text(value).font(.subheadline).textSelection(.enabled)
+                } else {
+                    Text(value).font(.subheadline).textSelection(.disabled)
+                }
             }
         }
     }
