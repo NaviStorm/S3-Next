@@ -1,3 +1,4 @@
+import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -157,6 +158,10 @@ import UniformTypeIdentifiers
             }
 
             if !object.isFolder {
+                Button(action: { appState.previewFile(key: object.key) }) {
+                    Label("Aperçu rapide", systemImage: "eye")
+                }
+
                 Button(action: { appState.downloadFile(key: object.key) }) {
                     Label("Télécharger", systemImage: "arrow.down.circle")
                 }
@@ -480,6 +485,7 @@ import UniformTypeIdentifiers
                         }
                     }
                     .presentationDetents([.medium, .large])
+                    .quickLookPreview($appState.quickLookURL)
                 }
                 .sheet(isPresented: $showingSettings) {
                     NavigationStack {
@@ -492,6 +498,7 @@ import UniformTypeIdentifiers
                     }
                 }
                 .sheet(item: $selectedItemForInfo) { AnyView(infoSheet($0)) }
+                .quickLookPreview($appState.quickLookURL)
         }
     }
 
@@ -518,10 +525,19 @@ import UniformTypeIdentifiers
                         ).foregroundColor(.green).cornerRadius(4)
                     }
                     if !version.isDeleteMarker {
-                        Button {
-                            appState.downloadFile(key: version.key, versionId: version.versionId)
-                        } label: {
-                            Image(systemName: "arrow.down.circle")
+                        HStack(spacing: 12) {
+                            Button {
+                                appState.previewFile(key: version.key, versionId: version.versionId)
+                            } label: {
+                                Image(systemName: "eye")
+                            }
+
+                            Button {
+                                appState.downloadFile(
+                                    key: version.key, versionId: version.versionId)
+                            } label: {
+                                Image(systemName: "arrow.down.circle")
+                            }
                         }
                     }
                 }

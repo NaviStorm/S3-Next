@@ -91,6 +91,7 @@ final class S3AppState: ObservableObject {
     @Published var isVersionsLoading = false
     @Published var isVersioningEnabled: Bool? = nil
     @Published var selectedObjectIsPublic: Bool? = nil
+    @Published var quickLookURL: URL? = nil
     @Published var isACLLoading = false
 
     private func applySort() {
@@ -305,6 +306,64 @@ final class S3AppState: ObservableObject {
                     self.showToast("Download Failed: \(error.localizedDescription)", type: .error)
                 }
                 self.log("[Download ERROR] \(error.localizedDescription)")
+            }
+        }
+        activeTasks[taskId] = task
+    }
+
+    func previewFile(key: String, versionId: String? = nil) {
+        guard let client = client else { return }
+        let filename = key.components(separatedBy: "/").last ?? "preview"
+
+        var previewTask = TransferTask(
+            type: .download, name: filename, progress: 0, status: .inProgress, totalFiles: 1,
+            completedFiles: 0)
+        let taskId = previewTask.id
+        transferTasks.append(previewTask)
+
+        log("[Preview START] \(key)")
+
+        let task = Task {
+            do {
+                let (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+
+                // Save to unique temp folder
+                let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(
+                    at: tempDir, withIntermediateDirectories: true)
+                let tempURL = tempDir.appendingPathComponent(filename)
+
+                try data.write(to: tempURL)
+
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].completedFiles = 1
+                        self.transferTasks[index].progress = 1.0
+                        self.transferTasks[index].status = .completed
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
+                    self.quickLookURL = tempURL
+                    self.log("[Preview SUCCESS] \(key) at \(tempURL.path)")
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .cancelled
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].status = .failed
+                        self.transferTasks[index].errorMessage = error.localizedDescription
+                    }
+                    self.activeTasks.removeValue(forKey: taskId)
+                    self.showToast(
+                        "Échec de l'aperçu : \(error.localizedDescription)", type: .error)
+                }
+                self.log("[Preview ERROR] \(error.localizedDescription)")
             }
         }
         activeTasks[taskId] = task

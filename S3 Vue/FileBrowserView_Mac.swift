@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import QuickLook
     import SwiftUI
     import UniformTypeIdentifiers
 
@@ -240,6 +241,10 @@
                                         }
 
                                         if !object.isFolder {
+                                            Button("Aperçu rapide") {
+                                                appState.previewFile(key: object.key)
+                                            }
+
                                             Button("Télécharger") {
                                                 appState.downloadFile(key: object.key)
                                             }
@@ -445,15 +450,29 @@
                                                         Spacer()
 
                                                         if !version.isDeleteMarker {
-                                                            Button(action: {
-                                                                appState.downloadFile(
-                                                                    key: version.key,
-                                                                    versionId: version.versionId)
-                                                            }) {
-                                                                Image(
-                                                                    systemName: "arrow.down.circle")
+                                                            HStack(spacing: 8) {
+                                                                Button(action: {
+                                                                    appState.previewFile(
+                                                                        key: version.key,
+                                                                        versionId: version.versionId
+                                                                    )
+                                                                }) {
+                                                                    Image(systemName: "eye")
+                                                                }
+                                                                .buttonStyle(.plain)
+
+                                                                Button(action: {
+                                                                    appState.downloadFile(
+                                                                        key: version.key,
+                                                                        versionId: version.versionId
+                                                                    )
+                                                                }) {
+                                                                    Image(
+                                                                        systemName:
+                                                                            "arrow.down.circle")
+                                                                }
+                                                                .buttonStyle(.plain)
                                                             }
-                                                            .buttonStyle(.plain)
                                                         }
                                                     }
 
@@ -545,6 +564,7 @@
                     }
                 }
             }
+            .quickLookPreview($appState.quickLookURL)
         }
 
         func displayName(for key: String) -> String {
