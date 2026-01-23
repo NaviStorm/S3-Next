@@ -88,11 +88,25 @@
                         .help("Nouveau Dossier")
 
                         Menu {
-                            Button("Envoyer des fichiers sur S3...") {
+                            Button("Envoyer des fichiers...") {
+                                appState.selectedEncryptionAlias = nil
                                 showingFileImporter = true
                             }
-                            Button("Envoyer un dossier sur S3...") {
+                            Button("Envoyer un dossier...") {
+                                appState.selectedEncryptionAlias = nil
                                 showingFolderImporter = true
+                            }
+
+                            if !appState.encryptionAliases.isEmpty {
+                                Divider()
+                                Menu("Envoyer Chiffré (CSE)") {
+                                    ForEach(appState.encryptionAliases, id: \.self) { alias in
+                                        Button(alias) {
+                                            appState.selectedEncryptionAlias = alias
+                                            showingFileImporter = true
+                                        }
+                                    }
+                                }
                             }
                         } label: {
                             Image(systemName: "square.and.arrow.up")

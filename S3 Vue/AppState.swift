@@ -94,6 +94,10 @@ public final class S3AppState: ObservableObject {
     @Published var quickLookURL: URL? = nil
     @Published var isACLLoading = false
 
+    // CSE (Client Side Encryption)
+    @Published var encryptionAliases: [String] = []
+    @Published var selectedEncryptionAlias: String? = nil  // Pour l'upload "à la demande"
+
     private func applySort() {
         // Keep ".." at top
         let parentItems = objects.filter { $0.key == ".." }
@@ -139,6 +143,11 @@ public final class S3AppState: ObservableObject {
         }
         if let savedSecret = KeychainHelper.shared.read(service: kService, account: kAccount) {
             secretKey = savedSecret
+        }
+
+        // Load CSE aliases
+        if let savedAliases = UserDefaults.standard.stringArray(forKey: "encryptionAliases") {
+            encryptionAliases = savedAliases
         }
     }
 
@@ -277,7 +286,12 @@ public final class S3AppState: ObservableObject {
 
         let task = Task {
             do {
-                let (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+                // Fetch metadata first to check for encryption
+                let metadata = try await client.headObject(key: key, versionId: versionId)
+                var (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+
+                // Decrypt if needed
+                data = try decryptIfNeeded(data: data, metadata: metadata)
 
                 DispatchQueue.main.async {
                     self.saveFileToDisk(data: data, filename: filename)
@@ -325,7 +339,26 @@ public final class S3AppState: ObservableObject {
 
         let task = Task {
             do {
-                let (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+                // Metadata check for CSE
+                let metadata = try await client.headObject(key: key, versionId: versionId)
+                let isCSE = metadata["x-amz-meta-cse-enabled"] == "true"
+                let keyAlias = metadata["x-amz-meta-cse-key-alias"]
+
+                var (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+
+                if isCSE, let alias = keyAlias {
+                    if let keyData = KeychainHelper.shared.readData(
+                        service: "com.s3vue.keys", account: alias)
+                    {
+                        data = try CryptoService.shared.decryptData(
+                            combinedData: data, keyData: keyData)
+                        log("[CSE] Preview decryption successful")
+                    } else {
+                        throw NSError(
+                            domain: "S3AppState", code: 403,
+                            userInfo: [NSLocalizedDescriptionKey: "Clé introuvable"])
+                    }
+                }
 
                 // Save to unique temp folder
                 let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -530,10 +563,14 @@ public final class S3AppState: ObservableObject {
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
             do {
-                let data = try Data(contentsOf: url)
+                var data = try Data(contentsOf: url)
                 log("[Upload START] \(filename) (\(data.count) bytes)")
 
-                try await client.putObject(key: key, data: data)
+                // Handle Encryption via helper
+                let (finalData, metadata) = try encryptIfRequested(
+                    data: data, keyAlias: self.selectedEncryptionAlias)
+
+                try await client.putObject(key: key, data: finalData, metadata: metadata)
 
                 DispatchQueue.main.async {
                     if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
@@ -542,6 +579,8 @@ public final class S3AppState: ObservableObject {
                         self.transferTasks[index].status = .completed
                     }
                     self.activeTasks.removeValue(forKey: taskId)
+                    // Reset selected alias after upload (on demand)
+                    self.selectedEncryptionAlias = nil
                     self.log("[Upload SUCCESS] \(key)")
                     self.loadObjects()
                 }

@@ -250,11 +250,36 @@ import UniformTypeIdentifiers
                     }
 
                     Menu {
-                        Button(action: { showingFileImporter = true }) {
-                            Label("Fichiers", systemImage: "doc.badge.plus")
+                        Section("Upload Standard") {
+                            Button(action: {
+                                appState.selectedEncryptionAlias = nil
+                                showingFileImporter = true
+                            }) {
+                                Label("Fichiers", systemImage: "doc.badge.plus")
+                            }
+                            Button(action: {
+                                appState.selectedEncryptionAlias = nil
+                                showingFolderImporter = true
+                            }) {
+                                Label("Dossier", systemImage: "folder.badge.plus")
+                            }
                         }
-                        Button(action: { showingFolderImporter = true }) {
-                            Label("Dossier", systemImage: "folder.badge.plus")
+
+                        if !appState.encryptionAliases.isEmpty {
+                            Section("Upload Chiffré (CSE)") {
+                                Menu {
+                                    ForEach(appState.encryptionAliases, id: \.self) { alias in
+                                        Button(action: {
+                                            appState.selectedEncryptionAlias = alias
+                                            showingFileImporter = true
+                                        }) {
+                                            Label(alias, systemImage: "key.fill")
+                                        }
+                                    }
+                                } label: {
+                                    Label("Sélectionner une clé...", systemImage: "lock.shield")
+                                }
+                            }
                         }
                     } label: {
                         Image(systemName: "plus.app")

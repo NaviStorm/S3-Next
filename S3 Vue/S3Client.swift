@@ -274,10 +274,16 @@ class S3Client {
         return allObjects
     }
 
-    func putObject(key: String, data: Data?) async throws {
+    func putObject(key: String, data: Data?, metadata: [String: String] = [:]) async throws {
         let url = try generateDownloadURL(key: key)
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
+
+        // Add custom metadata
+        for (mKey, mValue) in metadata {
+            request.setValue(mValue, forHTTPHeaderField: "x-amz-meta-\(mKey)")
+        }
+
         let bodyData = data ?? Data()
         try signRequest(request: &request, payload: bodyData)
         request.httpBody = bodyData
@@ -309,6 +315,28 @@ class S3Client {
         }
         let parser = S3VersionParser()
         return parser.parse(data: data).filter { $0.key == key }
+    }
+
+    func headObject(key: String, versionId: String? = nil) async throws -> [String: String] {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        try signRequest(request: &request, payload: "")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            throw S3Error.apiError(httpResponse.statusCode, "Head Failed")
+        }
+
+        var metadata: [String: String] = [:]
+        for (key, value) in httpResponse.allHeaderFields {
+            if let keyStr = key as? String {
+                metadata[keyStr.lowercased()] = value as? String
+            }
+        }
+        return metadata
     }
 
     func getObjectACL(key: String) async throws -> Bool {

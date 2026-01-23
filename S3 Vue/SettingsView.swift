@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var appState: S3AppState
+    @State private var showingAddKeyAlert = false
+    @State private var newKeyAlias = ""
 
     var body: some View {
         Form {
@@ -45,11 +47,54 @@ struct SettingsView: View {
                         .foregroundColor(.red)
                 }
             } header: {
-                Text("Gestion")
+                Text("Bucket")
             } footer: {
                 Text(
                     "L'activation du versioning vous permet de préserver, récupérer et restaurer chaque version de chaque objet stocké dans votre bucket."
                 )
+            }
+
+            Section("Chiffrement Client-Side (CSE)") {
+                if appState.encryptionAliases.isEmpty {
+                    Text("Aucune clé configurée.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(appState.encryptionAliases, id: \.self) { alias in
+                        HStack {
+                            Image(systemName: "key.fill")
+                                .foregroundColor(.orange)
+                            Text(alias)
+                            Spacer()
+                            Button(role: .destructive) {
+                                appState.deleteEncryptionKey(alias: alias)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Button(action: {
+                    showingAddKeyAlert = true
+                }) {
+                    Label("Ajouter une clé...", systemImage: "plus")
+                }
+                .alert("Nouvelle clé", isPresented: $showingAddKeyAlert) {
+                    TextField("Alias de la clé", text: $newKeyAlias)
+                    Button("Créer") {
+                        if !newKeyAlias.isEmpty {
+                            appState.createEncryptionKey(alias: newKeyAlias)
+                            newKeyAlias = ""
+                        }
+                    }
+                    Button("Annuler", role: .cancel) { newKeyAlias = "" }
+                } message: {
+                    Text(
+                        "Entrez un alias pour générer une nouvelle clé AES-256 stockée localement dans votre Keychain."
+                    )
+                }
             }
         }
         .formStyle(.grouped)
