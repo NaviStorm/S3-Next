@@ -313,7 +313,7 @@ class S3Client {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
             throw S3Error.apiError(httpResponse.statusCode, "ListVersions Failed: \(body)")
         }
-        let parser = S3VersionParser()
+        let parser = S3VersionParser(expectedKey: key)
         return parser.parse(data: data).filter { $0.key == key }
     }
 

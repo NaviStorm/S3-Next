@@ -75,14 +75,26 @@ class S3XMLParser: NSObject, XMLParserDelegate {
             inContents = false
             let date = parseDate(
                 currentLastModifiedString.trimmingCharacters(in: .whitespacesAndNewlines))
-            let key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+            var key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+
+            // Support pour certains providers S3 qui renvoient des clés relatives au préfixe
+            if !prefix.isEmpty && !key.hasPrefix(prefix) {
+                key = prefix + key
+            }
+
             // Include prefix itself if filterPrefix is false
             if !key.isEmpty && (filterPrefix ? key != prefix : true) {
                 objects.append(
                     S3Object(key: key, size: currentSize, lastModified: date, isFolder: false))
             }
         } else if elementName == "CommonPrefixes" {
-            let folderKey = currentPrefixValue.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+            var folderKey = currentPrefixValue.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+
+            // Support pour chemins relatifs sur CommonPrefixes
+            if !prefix.isEmpty && !folderKey.hasPrefix(prefix) {
+                folderKey = prefix + folderKey
+            }
+
             if !folderKey.isEmpty && (filterPrefix ? folderKey != prefix : true) {
                 objects.append(
                     S3Object(key: folderKey, size: 0, lastModified: Date(), isFolder: true))
@@ -100,6 +112,7 @@ class S3XMLParser: NSObject, XMLParserDelegate {
 }
 
 class S3VersionParser: NSObject, XMLParserDelegate {
+    private let expectedKey: String
     private var versions: [S3Version] = []
     private var currentElement = ""
     private var currentKey = ""
@@ -109,6 +122,10 @@ class S3VersionParser: NSObject, XMLParserDelegate {
     private var currentSize: Int64 = 0
     private var inVersion = false
     private var inDeleteMarker = false
+
+    init(expectedKey: String = "") {
+        self.expectedKey = expectedKey
+    }
 
     func parse(data: Data) -> [S3Version] {
         let parser = XMLParser(data: data)
@@ -161,7 +178,15 @@ class S3VersionParser: NSObject, XMLParserDelegate {
         if elementName == "Version" || elementName == "DeleteMarker" {
             let date = parseDate(
                 currentLastModifiedString.trimmingCharacters(in: .whitespacesAndNewlines))
-            let key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+            var key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
+
+            // Support pour clés relatives : si la clé reçue est juste le nom, on utilise expectedKey
+            if !expectedKey.isEmpty && !key.hasPrefix(expectedKey) && key.count < expectedKey.count
+            {
+                // Si expectedKey est "folder/file.txt" et key est "file.txt"
+                key = expectedKey
+            }
+
             versions.append(
                 S3Version(
                     key: key, versionId: currentVersionId, isLatest: currentIsLatest,

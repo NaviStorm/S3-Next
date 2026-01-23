@@ -669,7 +669,12 @@ public final class S3AppState: ObservableObject {
 
                     log("[Upload Folder] Uploading: \(relativePath)...")
                     let data = try Data(contentsOf: fileURL)
-                    try await client.putObject(key: s3Key, data: data)
+
+                    // Handle Encryption
+                    let (finalData, metadata) = try encryptIfRequested(
+                        data: data, keyAlias: self.selectedEncryptionAlias)
+
+                    try await client.putObject(key: s3Key, data: finalData, metadata: metadata)
                     uploadCount += 1
 
                     DispatchQueue.main.async {
@@ -687,6 +692,8 @@ public final class S3AppState: ObservableObject {
                         self.transferTasks[index].progress = 1.0
                     }
                     self.activeTasks.removeValue(forKey: taskId)
+                    // Reset selected alias after upload (on demand)
+                    self.selectedEncryptionAlias = nil
                     self.showToast("Dossier envoyé avec succès", type: .success)
                     self.loadObjects()
                 }
