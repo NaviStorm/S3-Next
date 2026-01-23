@@ -414,14 +414,17 @@
                     for url in urls { appState.uploadFile(url: url) }
                 }
             }
-            .fileImporter(
-                isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
-                allowsMultipleSelection: false
-            ) { result in
-                if case .success(let urls) = result, let url = urls.first {
-                    appState.uploadFolder(url: url)
-                }
-            }
+            .background(
+                Color.clear
+                    .fileImporter(
+                        isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        if case .success(let urls) = result, let url = urls.first {
+                            appState.uploadFolder(url: url)
+                        }
+                    }
+            )
             .sheet(isPresented: $showingTimeMachine) {
                 SnapshotTimelineView()
             }
