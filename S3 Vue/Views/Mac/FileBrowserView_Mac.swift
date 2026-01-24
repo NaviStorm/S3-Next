@@ -464,6 +464,9 @@
                 }
                 .frame(minWidth: 600, minHeight: 400)
             }
+            .sheet(isPresented: $showingTimeMachine) {
+                SnapshotTimelineView()
+            }
         }
 
         func displayName(for key: String) -> String {
