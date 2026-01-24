@@ -646,6 +646,125 @@ class S3Client {
         }
     }
 
+    // MARK: - Object Lock & Legal Hold
+
+    func getObjectRetention(key: String, versionId: String? = nil) async throws
+        -> S3ObjectRetention?
+    {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems =
+            (components.queryItems ?? []) + [URLQueryItem(name: "retention", value: nil)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if httpResponse.statusCode == 404 { return nil }
+        if !(200...299).contains(httpResponse.statusCode) { return nil }
+
+        return S3RetentionParser().parse(data: data)
+    }
+
+    func putObjectRetention(
+        key: String, versionId: String? = nil, mode: S3RetentionMode, until: Date
+    ) async throws {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems =
+            (components.queryItems ?? []) + [URLQueryItem(name: "retention", value: nil)]
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let dateStr = formatter.string(from: until)
+
+        let xml = """
+            <Retention xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+               <Mode>\(mode.rawValue)</Mode>
+               <RetainUntilDate>\(dateStr)</RetainUntilDate>
+            </Retention>
+            """
+        let body = xml.data(using: .utf8)!
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "PUT"
+        request.httpBody = body
+        request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        try signRequest(request: &request, payload: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+        if !(200...299).contains(httpResponse.statusCode) {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            throw S3Error.apiError(httpResponse.statusCode, "PutRetention Failed: \(bodyStr)")
+        }
+    }
+
+    func getObjectLegalHold(key: String, versionId: String? = nil) async throws -> Bool {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems =
+            (components.queryItems ?? []) + [URLQueryItem(name: "legal-hold", value: nil)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if httpResponse.statusCode == 404 { return false }
+        if !(200...299).contains(httpResponse.statusCode) { return false }
+
+        return S3LegalHoldParser().parse(data: data)
+    }
+
+    func putObjectLegalHold(key: String, versionId: String? = nil, enabled: Bool) async throws {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems =
+            (components.queryItems ?? []) + [URLQueryItem(name: "legal-hold", value: nil)]
+
+        let status = enabled ? "ON" : "OFF"
+        let xml = """
+            <LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+               <Status>\(status)</Status>
+            </LegalHold>
+            """
+        let body = xml.data(using: .utf8)!
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "PUT"
+        request.httpBody = body
+        request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        try signRequest(request: &request, payload: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+        if !(200...299).contains(httpResponse.statusCode) {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            throw S3Error.apiError(httpResponse.statusCode, "PutLegalHold Failed: \(bodyStr)")
+        }
+    }
+
+    func getBucketObjectLockConfiguration() async throws -> Bool {
+        let baseUrl = try generateDownloadURL(key: "")
+        var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "object-lock", value: nil)]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+        if httpResponse.statusCode == 404 || httpResponse.statusCode == 403 { return false }
+        if !(200...299).contains(httpResponse.statusCode) { return false }
+        let bodyString = String(data: data, encoding: .utf8) ?? ""
+        return bodyString.contains("<ObjectLockEnabled>Enabled</ObjectLockEnabled>")
+    }
+
     func getBucketVersioning() async throws -> Bool {
         let baseUrl = try generateDownloadURL(key: "")
         var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!

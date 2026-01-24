@@ -44,6 +44,20 @@ public struct S3ActiveUpload: Identifiable, Hashable {
     public let initiated: Date
 }
 
+public enum S3RetentionMode: String, Codable {
+    case governance = "GOVERNANCE"
+    case compliance = "COMPLIANCE"
+}
+
+public struct S3ObjectRetention: Hashable {
+    public let mode: S3RetentionMode
+    public let retainUntilDate: Date
+}
+
+public struct S3LegalHold: Hashable {
+    public let status: Bool  // true = ON, false = OFF
+}
+
 public enum ToastType {
     case info
     case error

@@ -25,6 +25,7 @@
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
         @State private var showingTimeMachine = false
+        @State private var showingSecurity = false
 
         // Cache for file type descriptions
         @State private var typeCache: [String: String] = [:]
@@ -346,14 +347,21 @@
                                 }
                             }
 
-                            Spacer()
-
                             if !selected.isFolder {
                                 Button("Télécharger") {
                                     appState.downloadFile(key: selected.key)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .frame(maxWidth: .infinity)
+
+                                Button(action: { showingSecurity = true }) {
+                                    Label(
+                                        "Sécurité & Verrouillage",
+                                        systemImage: "shield.lefthalf.filled"
+                                    )
+                                    .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
                             }
                         }
                         .padding()
@@ -366,9 +374,9 @@
                                     folderKey: selected.key)
                                 isStatsLoading = false
                             } else {
-                                appState.loadVersions(for: selected.key)
                                 appState.loadACL(for: selected.key)
                                 appState.loadMetadata(for: selected.key)
+                                appState.loadSecurityStatus(for: selected.key)
                             }
                         }
                     }
@@ -430,6 +438,19 @@
                         }
                     }
             )
+            .sheet(isPresented: $showingSecurity) {
+                if let selected = selectedObject {
+                    NavigationStack {
+                        ObjectSecurityView(objectKey: selected.key)
+                            .id(selected.key)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Terminer") { showingSecurity = false }
+                                }
+                            }
+                    }
+                }
+            }
         }
 
         func displayName(for key: String) -> String {

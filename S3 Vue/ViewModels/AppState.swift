@@ -91,6 +91,12 @@ public final class S3AppState: ObservableObject {
     @Published var isOrphanLoading = false
     @Published var orphanUploads: [S3ActiveUpload] = []
 
+    // Security (Object Lock & Legal Hold)
+    @Published var selectedObjectRetention: S3ObjectRetention? = nil
+    @Published var selectedObjectLegalHold: Bool = false
+    @Published var isSecurityLoading = false
+    @Published var bucketObjectLockEnabled: Bool? = nil
+
     // Activity History
     @Published var historyStartDate: Date =
         Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
@@ -468,6 +474,82 @@ public final class S3AppState: ObservableObject {
                     self.showToast(
                         "Échec du chargement des versions : \(error.localizedDescription)",
                         type: .error)
+                }
+            }
+        }
+    }
+
+    func loadBucketConfiguration() {
+        guard let client = client else { return }
+        Task {
+            do {
+                let enabled = try await client.getBucketObjectLockConfiguration()
+                DispatchQueue.main.async {
+                    self.bucketObjectLockEnabled = enabled
+                }
+            } catch {
+                self.log("Error loading bucket object lock config: \(error)")
+            }
+        }
+    }
+
+    func loadSecurityStatus(for key: String) {
+        guard let client = client else { return }
+        isSecurityLoading = true
+        selectedObjectRetention = nil
+        selectedObjectLegalHold = false
+
+        Task {
+            do {
+                let retention = try await client.getObjectRetention(key: key)
+                let legalHold = try await client.getObjectLegalHold(key: key)
+                DispatchQueue.main.async {
+                    self.selectedObjectRetention = retention
+                    self.selectedObjectLegalHold = legalHold
+                    self.isSecurityLoading = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isSecurityLoading = false
+                    self.log("[Security] Failed to load: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func updateRetention(for key: String, mode: S3RetentionMode, until: Date) {
+        guard let client = client else { return }
+        isSecurityLoading = true
+
+        Task {
+            do {
+                try await client.putObjectRetention(key: key, mode: mode, until: until)
+                loadSecurityStatus(for: key)
+                showToast("Rétention mise à jour", type: .success)
+            } catch {
+                DispatchQueue.main.async {
+                    self.isSecurityLoading = false
+                    self.showToast("Erreur rétention : \(error.localizedDescription)", type: .error)
+                }
+            }
+        }
+    }
+
+    func toggleLegalHold(for key: String) {
+        guard let client = client else { return }
+        let target = !selectedObjectLegalHold
+        isSecurityLoading = true
+
+        Task {
+            do {
+                try await client.putObjectLegalHold(key: key, enabled: target)
+                loadSecurityStatus(for: key)
+                showToast("Legal Hold \(target ? "activé" : "désactivé")", type: .success)
+            } catch {
+                DispatchQueue.main.async {
+                    self.isSecurityLoading = false
+                    self.showToast(
+                        "Erreur Legal Hold : \(error.localizedDescription)", type: .error)
                 }
             }
         }

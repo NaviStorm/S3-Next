@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
         @State private var showingDelete = false
         @State private var deleteItemKey = ""
         @State private var deleteIsFolder = false
+        @State private var showingSecurity = false
 
         @State private var showingTransfers = false
         @State private var showingHistory = false
@@ -67,6 +68,7 @@ import UniformTypeIdentifiers
                         selectedItemForInfo: $selectedItemForInfo,
                         appState: appState,
                         selectedVerObject: $selectedVerObject,
+                        showingSecurity: $showingSecurity,
                         infoSheet: { obj in infoSheet(for: obj) }
                     )
                 )
@@ -214,6 +216,16 @@ import UniformTypeIdentifiers
                 }
             ) {
                 Label("Supprimer", systemImage: "trash")
+            }
+
+            if !object.isFolder {
+                Divider()
+                Button(action: {
+                    selectedVerObject = object
+                    showingSecurity = true
+                }) {
+                    Label("Sécurité & Verrouillage", systemImage: "shield.lefthalf.filled")
+                }
             }
         }
 
@@ -376,6 +388,8 @@ import UniformTypeIdentifiers
                             accessSection(for: object)
                             Divider()
                             sharingSection(for: object)
+                            Divider()
+                            securitySection(for: object)
                         } else {
                             LabeledContent("Type", value: "Dossier")
                             folderStatsSection(for: object)
@@ -438,6 +452,26 @@ import UniformTypeIdentifiers
         }
 
         @ViewBuilder
+        private func securitySection(for object: S3Object) -> some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sécurité & Immutabilité").font(.subheadline).foregroundColor(.secondary)
+                Button {
+                    selectedItemForInfo = nil
+                    selectedVerObject = object
+                    showingSecurity = true
+                } label: {
+                    HStack {
+                        Label("Gérer les verrous", systemImage: "lock.shield")
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption).foregroundColor(
+                            .secondary)
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+
+        @ViewBuilder
         private func folderStatsSection(for object: S3Object) -> some View {
             if isInfoStatsLoading {
                 HStack {
@@ -488,6 +522,7 @@ import UniformTypeIdentifiers
         @Binding var selectedItemForInfo: S3Object?
         @ObservedObject var appState: S3AppState
         @Binding var selectedVerObject: S3Object?
+        @Binding var showingSecurity: Bool
         let infoSheet: (S3Object) -> any View
 
         func body(content: Content) -> some View {
@@ -582,6 +617,19 @@ import UniformTypeIdentifiers
                 .sheet(isPresented: $showingHistory) {
                     ActivityHistoryView_iOS()
                         .environmentObject(appState)
+                }
+                .sheet(isPresented: $showingSecurity) {
+                    if let selected = selectedVerObject {
+                        NavigationStack {
+                            ObjectSecurityView(objectKey: selected.key)
+                                .id(selected.key)
+                                .toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Terminé") { showingSecurity = false }
+                                    }
+                                }
+                        }
+                    }
                 }
                 .sheet(item: $selectedItemForInfo) { AnyView(infoSheet($0)) }
                 .quickLookPreview($appState.quickLookURL)
