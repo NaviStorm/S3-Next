@@ -29,6 +29,14 @@ public final class TransferManager: ObservableObject {
     func uploadFile(url: URL, targetKey: String, client: S3Client, keyAlias: String?) {
         log("[TransferManager] Upload File Start: \(url.lastPathComponent)")
 
+        let fileSize: Int64
+        do {
+            let attr = try FileManager.default.attributesOfItem(atPath: url.path)
+            fileSize = attr[.size] as? Int64 ?? 0
+        } catch {
+            fileSize = 0
+        }
+
         let transferTask = TransferTask(
             type: .upload, name: url.lastPathComponent, progress: 0, status: .inProgress,
             totalFiles: 1,
@@ -41,45 +49,151 @@ public final class TransferManager: ObservableObject {
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
             do {
-                let data = try Data(contentsOf: url)
+                if fileSize > 100 * 1024 * 1024 && keyAlias == nil {
+                    // MULTIPART UPLOAD (Only for unencrypted for now to keep it safe/simple)
+                    try await performMultipartUpload(
+                        url: url, targetKey: targetKey, client: client, taskId: taskId,
+                        fileSize: fileSize)
+                } else {
+                    // SIMPLE PUT
+                    let data = try Data(contentsOf: url)
+                    let (finalData, metadata) = try encryptDataIfNeeded(
+                        data: data, keyAlias: keyAlias)
+                    try await client.putObject(key: targetKey, data: finalData, metadata: metadata)
 
-                // Handle Encryption (Note: we need to pass encryptIfRequested logic or duplicate it)
-                // For now, let's assume we pass the final data and metadata or we do it here.
-                // To keep it clean, let's keep encryption logic here as well.
-                let (finalData, metadata) = try encryptDataIfNeeded(data: data, keyAlias: keyAlias)
-
-                try await client.putObject(key: targetKey, data: finalData, metadata: metadata)
+                    await MainActor.run {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                            self.transferTasks[index].progress = 1.0
+                            self.transferTasks[index].status = .completed
+                        }
+                    }
+                }
 
                 await MainActor.run {
-                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
-                        self.transferTasks[index].completedFiles = 1
-                        self.transferTasks[index].progress = 1.0
-                        self.transferTasks[index].status = .completed
-                    }
                     self.activeTasks.removeValue(forKey: taskId)
                     self.log("[TransferManager] Upload SUCCESS: \(targetKey)")
                     self.onTransferCompleted?(.upload)
                 }
-            } catch is CancellationError {
-                await MainActor.run {
-                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
-                        self.transferTasks[index].status = .cancelled
-                    }
-                    self.activeTasks.removeValue(forKey: taskId)
-                }
             } catch {
+                let nsError = error as NSError
+                let isCancel =
+                    error is CancellationError
+                    || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+
                 await MainActor.run {
                     if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
-                        self.transferTasks[index].status = .failed
-                        self.transferTasks[index].errorMessage = error.localizedDescription
+                        self.transferTasks[index].status = isCancel ? .cancelled : .failed
+                        self.transferTasks[index].errorMessage =
+                            isCancel ? nil : error.localizedDescription
                     }
                     self.activeTasks.removeValue(forKey: taskId)
-                    self.onTransferError?("Upload Failed: \(error.localizedDescription)")
+                    if !isCancel {
+                        self.onTransferError?("Upload Failed: \(error.localizedDescription)")
+                    }
                 }
-                log("[TransferManager] Upload ERROR: \(error.localizedDescription)")
+                if isCancel {
+                    log("[TransferManager] Upload CANCELLED: \(targetKey)")
+                } else {
+                    log("[TransferManager] Upload ERROR: \(error.localizedDescription)")
+                }
             }
         }
         activeTasks[taskId] = task
+    }
+
+    private func performMultipartUpload(
+        url: URL, targetKey: String, client: S3Client, taskId: UUID, fileSize: Int64
+    ) async throws {
+        log("[TransferManager] Checking for existing multipart uploads for: \(targetKey)")
+
+        let activeUploads = (try? await client.listMultipartUploads()) ?? [:]
+        var uploadId: String
+        var existingParts: [Int: String] = [:]
+
+        if let existingId = activeUploads[targetKey] {
+            log("[TransferManager] Found existing UploadId: \(existingId). Resuming...")
+            uploadId = existingId
+            existingParts = (try? await client.listParts(key: targetKey, uploadId: uploadId)) ?? [:]
+            log("[TransferManager] Already have \(existingParts.count) parts on server.")
+        } else {
+            log("[TransferManager] Initializing New Multipart Upload...")
+            uploadId = try await client.createMultipartUpload(key: targetKey)
+        }
+
+        var parts: [Int: String] = existingParts
+        let partSize: Int = 5 * 1024 * 1024  // 5 Mo pour plus de fluidité UI
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
+
+        var partNumber = 1
+        var uploadedBytes: Int64 = 0
+
+        do {
+            while uploadedBytes < fileSize {
+                try Task.checkCancellation()
+
+                let offset = UInt64(partNumber - 1) * UInt64(partSize)
+                if offset >= UInt64(fileSize) { break }
+
+                if parts[partNumber] != nil {
+                    uploadedBytes = min(fileSize, Int64(offset) + Int64(partSize))
+                    partNumber += 1
+
+                    let progress = Double(uploadedBytes) / Double(fileSize)
+                    await MainActor.run {
+                        if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                            self.transferTasks[index].progress = progress
+                        }
+                    }
+                    continue
+                }
+
+                try fileHandle.seek(toOffset: offset)
+                guard let data = try fileHandle.read(upToCount: partSize), !data.isEmpty else {
+                    break
+                }
+
+                log("[TransferManager] Uploading part \(partNumber)...")
+                let etag = try await client.uploadPart(
+                    key: targetKey, uploadId: uploadId, partNumber: partNumber, data: data)
+                parts[partNumber] = etag
+
+                uploadedBytes = min(fileSize, Int64(offset) + Int64(data.count))
+                partNumber += 1
+
+                let progress = Double(uploadedBytes) / Double(fileSize)
+                await MainActor.run {
+                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                        self.transferTasks[index].progress = progress
+                    }
+                }
+            }
+
+            log("[TransferManager] Finalizing upload (\(parts.count) parts)...")
+            try await client.completeMultipartUpload(
+                key: targetKey, uploadId: uploadId, parts: parts)
+
+            await MainActor.run {
+                if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                    self.transferTasks[index].status = .completed
+                    self.transferTasks[index].progress = 1.0
+                }
+            }
+        } catch {
+            let nsError = error as NSError
+            let isCancel =
+                error is CancellationError
+                || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+
+            if isCancel {
+                log(
+                    "[TransferManager] Multipart cancelled. UploadId \(uploadId) preserved for resume."
+                )
+            } else {
+                log("[TransferManager] Multipart ERROR on part \(partNumber): \(error)")
+            }
+            throw error
+        }
     }
 
     func uploadFolder(url: URL, targetPrefix: String, client: S3Client, keyAlias: String?) {

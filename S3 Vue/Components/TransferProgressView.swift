@@ -121,7 +121,9 @@ struct TransferTaskRow: View {
     var statusText: String {
         switch transferTask.status {
         case .pending: return "En attente..."
-        case .inProgress: return "\(Int(transferTask.progress * 100))%"
+        case .inProgress:
+            let percent = transferTask.progress * 100
+            return percent < 10.0 ? String(format: "%.1f%%", percent) : "\(Int(percent))%"
         case .completed: return "Terminé"
         case .failed: return "Échoué"
         case .cancelled: return "Annulé"

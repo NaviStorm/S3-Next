@@ -238,3 +238,127 @@ class S3VersionParser: NSObject, XMLParserDelegate {
         return fractionalFormatter.date(from: string) ?? Date()
     }
 }
+
+class S3MultipartUploadParser: NSObject, XMLParserDelegate {
+    var uploadId: String? = nil
+    private var currentElement = ""
+
+    func parse(data: Data) -> String? {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return uploadId
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        currentElement = elementName
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if currentElement == "UploadId" {
+            let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                if uploadId == nil { uploadId = "" }
+                uploadId? += cleaned
+            }
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "UploadId" {
+            currentElement = ""
+        }
+    }
+}
+
+class S3PartsParser: NSObject, XMLParserDelegate {
+    var parts: [Int: String] = [:]
+    private var currentElement = ""
+    private var currentPartNumber: Int? = nil
+    private var currentETag: String? = nil
+
+    func parse(data: Data) -> [Int: String] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return parts
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        currentElement = elementName
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty { return }
+        if currentElement == "PartNumber" {
+            currentPartNumber = Int(cleaned)
+        } else if currentElement == "ETag" {
+            currentETag = cleaned.replacingOccurrences(of: "\"", with: "")
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "Part" {
+            if let num = currentPartNumber, let etag = currentETag {
+                parts[num] = etag
+            }
+            currentPartNumber = nil
+            currentETag = nil
+        }
+    }
+}
+
+class S3ActiveUploadsParser: NSObject, XMLParserDelegate {
+    var activeUploads: [String: String] = [:]  // Key: UploadId
+    private var currentElement = ""
+    private var currentKey = ""
+    private var currentUploadId = ""
+
+    func parse(data: Data) -> [String: String] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return activeUploads
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        currentElement = elementName
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty { return }
+        if currentElement == "Key" {
+            currentKey += cleaned
+        } else if currentElement == "UploadId" {
+            currentUploadId += cleaned
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "Upload" {
+            activeUploads[currentKey] = currentUploadId
+            currentKey = ""
+            currentUploadId = ""
+        }
+    }
+}
