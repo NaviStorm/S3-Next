@@ -149,6 +149,7 @@ public final class S3AppState: ObservableObject {
     }
 
     private var client: S3Client?
+    private var cancellables = Set<AnyCancellable>()
 
     private let kService = "com.antigravity.s3viewer"
     private let kAccount = "aws-secret"
@@ -163,6 +164,14 @@ public final class S3AppState: ObservableObject {
         transferManager.logHandler = { [weak self] msg in
             self?.log(msg)
         }
+
+        // Bridge TransferManager changes to AppState
+        transferManager.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         transferManager.onTransferCompleted = { [weak self] type in
             if type == .upload || type == .delete || type == .rename {
                 self?.loadObjects()

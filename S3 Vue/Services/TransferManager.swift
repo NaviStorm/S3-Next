@@ -320,6 +320,7 @@ public final class TransferManager: ObservableObject {
                 let metadata = try await client.headObject(key: key, versionId: versionId)
                 let sizeStr = metadata["content-length"] ?? "0"
                 let totalSize = Int64(sizeStr) ?? 0
+                log("[TransferManager] Download START: \(key) totalSize: \(totalSize)")
 
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
                     UUID().uuidString
@@ -327,6 +328,7 @@ public final class TransferManager: ObservableObject {
 
                 if totalSize > 100 * 1024 * 1024 {
                     // LARGE FILE -> RANGE DOWNLOAD
+                    log("[TransferManager] Taille importante, téléchargement par segments")
                     try await performRangeDownload(
                         key: key, versionId: versionId, client: client, taskId: taskId,
                         totalSize: totalSize, destinationURL: tempURL)
@@ -378,6 +380,7 @@ public final class TransferManager: ObservableObject {
         key: String, versionId: String? = nil, client: S3Client, taskId: UUID, totalSize: Int64,
         destinationURL: URL
     ) async throws {
+        log("[performRangeDownload] Téléchargement par segments")
         // Supporter la reprise : si le fichier temporaire existe déjà, on vérifie sa taille
         var downloadedBytes: Int64 = 0
         if FileManager.default.fileExists(atPath: destinationURL.path) {
