@@ -82,3 +82,53 @@ public enum ToastType {
         }
     }
 }
+
+// MARK: - Lifecycle Policies
+
+public enum S3LifecycleStatus: String, Codable {
+    case enabled = "Enabled"
+    case disabled = "Disabled"
+}
+
+public struct S3LifecycleTransition: Hashable {
+    public var days: Int?
+    public var storageClass: String
+
+    public init(days: Int? = nil, storageClass: String) {
+        self.days = days
+        self.storageClass = storageClass
+    }
+}
+
+public struct S3LifecycleExpiration: Hashable {
+    public var days: Int?
+
+    public init(days: Int? = nil) {
+        self.days = days
+    }
+}
+
+public struct S3LifecycleRule: Identifiable, Hashable {
+    public var id: String
+    public var status: S3LifecycleStatus
+    public var prefix: String
+    public var transitions: [S3LifecycleTransition]
+    public var expiration: S3LifecycleExpiration?
+    public var abortIncompleteMultipartUploadDays: Int?
+
+    public init(
+        id: String = UUID().uuidString,
+        status: S3LifecycleStatus = .enabled,
+        prefix: String = "",
+        transitions: [S3LifecycleTransition] = [],
+        expiration: S3LifecycleExpiration? = nil,
+        abortIncompleteMultipartUploadDays: Int? = 7
+    ) {
+        self.id = id
+        self.status = status
+        self.prefix = prefix
+        self.transitions = transitions
+        self.expiration = expiration
+        self.abortIncompleteMultipartUploadDays = abortIncompleteMultipartUploadDays
+    }
+}

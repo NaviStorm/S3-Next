@@ -24,11 +24,7 @@ import UniformTypeIdentifiers
         @State private var deleteItemKey = ""
         @State private var deleteIsFolder = false
         @State private var showingSecurity = false
-
-        @State private var showingTransfers = false
-        @State private var showingHistory = false
-
-        @State private var selectedItemForInfo: S3Object?
+        @State private var showingLifecycle = false
         @State private var infoFolderStats: (count: Int, size: Int64)?
         @State private var isInfoStatsLoading = false
 
@@ -69,6 +65,7 @@ import UniformTypeIdentifiers
                         appState: appState,
                         selectedVerObject: $selectedVerObject,
                         showingSecurity: $showingSecurity,
+                        showingLifecycle: $showingLifecycle,
                         infoSheet: { obj in infoSheet(for: obj) }
                     )
                 )
@@ -323,8 +320,8 @@ import UniformTypeIdentifiers
                             Label("Trier par", systemImage: "arrow.up.arrow.down")
                         }
 
-                        Button(action: { showingHistory = true }) {
-                            Label("Historique des activités", systemImage: "clock.arrow.circlepath")
+                        Button(action: { showingLifecycle = true }) {
+                            Label("Cycle de Vie (S3)", systemImage: "clock.arrow.2.circlepath")
                         }
 
                         Button(action: { showingSettings = true }) {
@@ -523,6 +520,7 @@ import UniformTypeIdentifiers
         @ObservedObject var appState: S3AppState
         @Binding var selectedVerObject: S3Object?
         @Binding var showingSecurity: Bool
+        @Binding var showingLifecycle: Bool
         let infoSheet: (S3Object) -> any View
 
         func body(content: Content) -> some View {
@@ -629,6 +627,16 @@ import UniformTypeIdentifiers
                                     }
                                 }
                         }
+                    }
+                }
+                .sheet(isPresented: $showingLifecycle) {
+                    NavigationStack {
+                        BucketLifecycleView()
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Terminé") { showingLifecycle = false }
+                                }
+                            }
                     }
                 }
                 .sheet(item: $selectedItemForInfo) { AnyView(infoSheet($0)) }

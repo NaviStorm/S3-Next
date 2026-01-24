@@ -26,6 +26,7 @@
         @State private var isStatsLoading = false
         @State private var showingTimeMachine = false
         @State private var showingSecurity = false
+        @State private var showingLifecycle = false
 
         // Cache for file type descriptions
         @State private var typeCache: [String: String] = [:]
@@ -76,7 +77,8 @@
                         }
                     },
                     onShowTimeMachine: { showingTimeMachine = true },
-                    onShowHistory: { openWindow(id: "activity-history") }
+                    onShowHistory: { openWindow(id: "activity-history") },
+                    onShowLifecycle: { showingLifecycle = true }
                 )
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -450,6 +452,17 @@
                             }
                     }
                 }
+            }
+            .sheet(isPresented: $showingLifecycle) {
+                NavigationStack {
+                    BucketLifecycleView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Terminer") { showingLifecycle = false }
+                            }
+                        }
+                }
+                .frame(minWidth: 600, minHeight: 400)
             }
         }
 

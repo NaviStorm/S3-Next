@@ -19,6 +19,7 @@
         var onDelete: () -> Void
         var onShowTimeMachine: () -> Void
         var onShowHistory: () -> Void
+        var onShowLifecycle: () -> Void
 
         var body: some View {
             VStack(spacing: 0) {
@@ -245,6 +246,12 @@
                                         RibbonButton(
                                             title: "Activités", icon: "calendar.badge.clock",
                                             color: .blue, action: onShowHistory)
+                                    }
+
+                                    RibbonGroup(label: "Automatisation") {
+                                        RibbonButton(
+                                            title: "Cycle de Vie", icon: "clock.arrow.2.circlepath",
+                                            color: .orange, action: onShowLifecycle)
                                     }
                                 }
                                 .transition(

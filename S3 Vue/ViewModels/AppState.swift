@@ -97,6 +97,10 @@ public final class S3AppState: ObservableObject {
     @Published var isSecurityLoading = false
     @Published var bucketObjectLockEnabled: Bool? = nil
 
+    // Lifecycle
+    @Published var bucketLifecycleRules: [S3LifecycleRule] = []
+    @Published var isLifecycleLoading = false
+
     // Activity History
     @Published var historyStartDate: Date =
         Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
@@ -987,5 +991,62 @@ public final class S3AppState: ObservableObject {
         activeComparison = nil
         comparisonBaseId = nil
         comparisonTargetId = nil
+    }
+
+    // MARK: - Lifecycle Management
+
+    func loadLifecycleRules() {
+        guard let client = self.client else { return }
+        isLifecycleLoading = true
+
+        Task {
+            do {
+                let rules = try await client.getBucketLifecycle()
+                await MainActor.run {
+                    self.bucketLifecycleRules = rules
+                    self.isLifecycleLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.log("Erreur chargement Lifecycle: \(error.localizedDescription)")
+                    self.isLifecycleLoading = false
+                }
+            }
+        }
+    }
+
+    func saveLifecycleRules() {
+        guard let client = self.client else { return }
+        isLifecycleLoading = true
+
+        let rulesToSave = bucketLifecycleRules
+
+        Task {
+            do {
+                try await client.putBucketLifecycle(rules: rulesToSave)
+                await MainActor.run {
+                    self.showToast("Configuration Lifecycle mise à jour", type: .success)
+                    self.isLifecycleLoading = false
+                    self.loadLifecycleRules()  // Recharger pour confirmer
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage =
+                        "Erreur mise à jour Lifecycle: \(error.localizedDescription)"
+                    self.isLifecycleLoading = false
+                }
+            }
+        }
+    }
+
+    func addLifecycleRule(_ rule: S3LifecycleRule) {
+        bucketLifecycleRules.append(rule)
+        saveLifecycleRules()
+    }
+
+    func deleteLifecycleRule(at index: Int) {
+        guard index < bucketLifecycleRules.count else { return }
+        bucketLifecycleRules.remove(at: index)
+        saveLifecycleRules()
     }
 }
