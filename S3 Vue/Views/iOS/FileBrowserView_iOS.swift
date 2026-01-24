@@ -25,6 +25,7 @@ import UniformTypeIdentifiers
         @State private var deleteIsFolder = false
 
         @State private var showingTransfers = false
+        @State private var showingHistory = false
 
         @State private var selectedItemForInfo: S3Object?
         @State private var infoFolderStats: (count: Int, size: Int64)?
@@ -62,6 +63,7 @@ import UniformTypeIdentifiers
                         showingVersions: $showingVersions,
                         showingSettings: $showingSettings,
                         showingTransfers: $showingTransfers,
+                        showingHistory: $showingHistory,
                         selectedItemForInfo: $selectedItemForInfo,
                         appState: appState,
                         selectedVerObject: $selectedVerObject,
@@ -313,6 +315,10 @@ import UniformTypeIdentifiers
                         }
                     }
 
+                    Button(action: { showingHistory = true }) {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+
                     Button(action: { appState.disconnect() }) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
                     }
@@ -472,6 +478,7 @@ import UniformTypeIdentifiers
         @Binding var showingVersions: Bool
         @Binding var showingSettings: Bool
         @Binding var showingTransfers: Bool
+        @Binding var showingHistory: Bool
         @Binding var selectedItemForInfo: S3Object?
         @ObservedObject var appState: S3AppState
         @Binding var selectedVerObject: S3Object?
@@ -565,6 +572,10 @@ import UniformTypeIdentifiers
                                 }
                             }
                     }
+                }
+                .sheet(isPresented: $showingHistory) {
+                    ActivityHistoryView_iOS()
+                        .environmentObject(appState)
                 }
                 .sheet(item: $selectedItemForInfo) { AnyView(infoSheet($0)) }
                 .quickLookPreview($appState.quickLookURL)
