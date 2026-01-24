@@ -323,6 +323,11 @@ import UniformTypeIdentifiers
                             Label("Trier par", systemImage: "arrow.up.arrow.down")
                         }
 
+                        Button(action: { showingHistory = true }) {
+                            Label(
+                                "Historique des Activités", systemImage: "clock.arrow.2.circlepath")
+                        }
+
                         Button(action: { showingLifecycle = true }) {
                             Label("Cycle de Vie (S3)", systemImage: "clock.arrow.2.circlepath")
                         }
