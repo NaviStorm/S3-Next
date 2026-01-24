@@ -21,6 +21,7 @@ struct S3_VueApp: App {
                     Divider()
                     OpenTransfersWindowButton()
                     OpenDebugWindowButton()
+                    OpenHistoryWindowButton()
                 }
             }
         #endif
@@ -35,6 +36,13 @@ struct S3_VueApp: App {
         #if os(macOS)
             Window("Transferts", id: "transfers") {
                 TransferProgressView()
+                    .environmentObject(appState)
+            }
+        #endif
+
+        #if os(macOS)
+            Window("Historique des Activités", id: "activity-history") {
+                ActivityHistoryView()
                     .environmentObject(appState)
             }
         #endif
@@ -81,6 +89,17 @@ struct S3_VueApp: App {
                 openWindow(id: "transfers")
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
+        }
+    }
+
+    struct OpenHistoryWindowButton: View {
+        @Environment(\.openWindow) var openWindow
+
+        var body: some View {
+            Button("Afficher l'historique des activités") {
+                openWindow(id: "activity-history")
+            }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
         }
     }
 #endif

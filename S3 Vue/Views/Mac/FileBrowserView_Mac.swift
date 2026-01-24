@@ -6,6 +6,7 @@
 
     struct FileBrowserView_Mac: View {
         @EnvironmentObject var appState: S3AppState
+        @Environment(\.openWindow) var openWindow
         @State private var selectedObjectIds: Set<S3Object.ID> = []
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
@@ -24,7 +25,6 @@
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
         @State private var showingTimeMachine = false
-        @State private var showingHistory = false
 
         // Cache for file type descriptions
         @State private var typeCache: [String: String] = [:]
@@ -75,7 +75,7 @@
                         }
                     },
                     onShowTimeMachine: { showingTimeMachine = true },
-                    onShowHistory: { showingHistory = true }
+                    onShowHistory: { openWindow(id: "activity-history") }
                 )
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -430,9 +430,6 @@
                         }
                     }
             )
-            .sheet(isPresented: $showingHistory) {
-                ActivityHistoryView()
-            }
         }
 
         func displayName(for key: String) -> String {

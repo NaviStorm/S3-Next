@@ -154,7 +154,7 @@
                 .padding(10)
                 .background(Color(NSColor.windowBackgroundColor))
             }
-            .frame(minWidth: 700, minHeight: 450)
+            .frame(minWidth: 700, maxWidth: .infinity, minHeight: 450, maxHeight: .infinity)
         }
 
         private func formatBytes(_ bytes: Int64) -> String {
