@@ -18,6 +18,7 @@
         var onRename: () -> Void
         var onDelete: () -> Void
         var onShowTimeMachine: () -> Void
+        var onShowHistory: () -> Void
 
         var body: some View {
             VStack(spacing: 0) {
@@ -241,6 +242,9 @@
                                         RibbonButton(
                                             title: "Historique", icon: "clock.arrow.circlepath",
                                             color: .purple, action: onShowTimeMachine)
+                                        RibbonButton(
+                                            title: "Activités", icon: "calendar.badge.clock",
+                                            color: .blue, action: onShowHistory)
                                     }
                                 }
                                 .transition(

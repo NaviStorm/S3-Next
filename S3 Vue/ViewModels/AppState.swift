@@ -87,6 +87,13 @@ public final class S3AppState: ObservableObject {
     @Published var quickLookURL: URL? = nil
     @Published var isACLLoading = false
     @Published var isMetadataLoading = false
+    @Published var isHistoryLoading = false
+
+    // Activity History
+    @Published var historyStartDate: Date =
+        Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+    @Published var historyEndDate: Date = Date()
+    @Published var historyResults: [S3Version] = []
 
     // Snapshots & Time Machine
     @Published var savedSnapshots: [S3Snapshot] = []
@@ -473,6 +480,32 @@ public final class S3AppState: ObservableObject {
                     self.showToast(
                         "Échec du chargement des versions : \(error.localizedDescription)",
                         type: .error)
+                }
+            }
+        }
+    }
+
+    func loadHistory(for prefix: String) {
+        guard let client = client else { return }
+        isHistoryLoading = true
+        historyResults = []
+
+        log("[History] Searching prefix: \(prefix) from \(historyStartDate) to \(historyEndDate)")
+
+        Task {
+            do {
+                let results = try await client.fetchHistory(
+                    prefix: prefix, from: historyStartDate, to: historyEndDate)
+                DispatchQueue.main.async {
+                    self.historyResults = results
+                    self.isHistoryLoading = false
+                    self.log("[History] Found \(results.count) items.")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isHistoryLoading = false
+                    self.log("[History] ERROR: \(error.localizedDescription)")
+                    self.showToast("Échec du chargement de l'historique", type: .error)
                 }
             }
         }

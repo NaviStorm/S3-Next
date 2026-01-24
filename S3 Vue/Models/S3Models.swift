@@ -28,7 +28,7 @@ public struct S3Object: Identifiable, Hashable {
 }
 
 public struct S3Version: Identifiable, Hashable {
-    public var id: String { versionId }
+    public var id: String { key + versionId }
     public let key: String
     public let versionId: String
     public let isLatest: Bool

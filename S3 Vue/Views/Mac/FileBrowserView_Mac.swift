@@ -24,6 +24,7 @@
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
         @State private var showingTimeMachine = false
+        @State private var showingHistory = false
 
         // Cache for file type descriptions
         @State private var typeCache: [String: String] = [:]
@@ -73,7 +74,8 @@
                             showingDelete = true
                         }
                     },
-                    onShowTimeMachine: { showingTimeMachine = true }
+                    onShowTimeMachine: { showingTimeMachine = true },
+                    onShowHistory: { showingHistory = true }
                 )
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -428,8 +430,8 @@
                         }
                     }
             )
-            .sheet(isPresented: $showingTimeMachine) {
-                SnapshotTimelineView()
+            .sheet(isPresented: $showingHistory) {
+                ActivityHistoryView()
             }
         }
 

@@ -139,6 +139,11 @@ class S3VersionParser: NSObject, XMLParserDelegate {
     private var inVersion = false
     private var inDeleteMarker = false
 
+    var isTruncated = false
+    var nextKeyMarker: String? = nil
+    var nextVersionIdMarker: String? = nil
+    private var isTruncatedString = ""
+
     init(expectedKey: String = "") {
         self.expectedKey = expectedKey
     }
@@ -168,22 +173,39 @@ class S3VersionParser: NSObject, XMLParserDelegate {
             currentVersionId = ""
             currentIsLatest = false
             currentLastModifiedString = ""
+        } else if elementName == "IsTruncated" {
+            isTruncatedString = ""
+        } else if elementName == "NextKeyMarker" {
+            if nextKeyMarker == nil { nextKeyMarker = "" }
+        } else if elementName == "NextVersionIdMarker" {
+            if nextVersionIdMarker == nil { nextVersionIdMarker = "" }
         }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if currentElement == "Key" {
-            currentKey += string
-        } else if currentElement == "VersionId" {
-            currentVersionId += string
-        } else if currentElement == "IsLatest" {
+        if inVersion || inDeleteMarker {
+            if currentElement == "Key" {
+                currentKey += string
+            } else if currentElement == "VersionId" {
+                currentVersionId += string
+            } else if currentElement == "IsLatest" {
+                let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty { currentIsLatest = (cleaned.lowercased() == "true") }
+            } else if currentElement == "LastModified" {
+                currentLastModifiedString += string
+            } else if currentElement == "Size" {
+                let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty { currentSize = Int64(cleaned) ?? 0 }
+            }
+        } else {
             let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cleaned.isEmpty { currentIsLatest = (cleaned.lowercased() == "true") }
-        } else if currentElement == "LastModified" {
-            currentLastModifiedString += string
-        } else if currentElement == "Size" {
-            let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cleaned.isEmpty { currentSize = Int64(cleaned) ?? 0 }
+            if currentElement == "IsTruncated" {
+                isTruncatedString += cleaned
+            } else if currentElement == "NextKeyMarker" {
+                nextKeyMarker? += cleaned
+            } else if currentElement == "NextVersionIdMarker" {
+                nextVersionIdMarker? += cleaned
+            }
         }
     }
 
@@ -194,14 +216,7 @@ class S3VersionParser: NSObject, XMLParserDelegate {
         if elementName == "Version" || elementName == "DeleteMarker" {
             let date = parseDate(
                 currentLastModifiedString.trimmingCharacters(in: .whitespacesAndNewlines))
-            var key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
-
-            // Support pour clés relatives : si la clé reçue est juste le nom, on utilise expectedKey
-            if !expectedKey.isEmpty && !key.hasPrefix(expectedKey) && key.count < expectedKey.count
-            {
-                // Si expectedKey est "folder/file.txt" et key est "file.txt"
-                key = expectedKey
-            }
+            let key = currentKey.trimmingCharacters(in: .init(charactersIn: "\n\r"))
 
             versions.append(
                 S3Version(
@@ -210,6 +225,8 @@ class S3VersionParser: NSObject, XMLParserDelegate {
                     isDeleteMarker: (elementName == "DeleteMarker")))
             inVersion = false
             inDeleteMarker = false
+        } else if elementName == "IsTruncated" {
+            isTruncated = (isTruncatedString.lowercased() == "true")
         }
     }
 
