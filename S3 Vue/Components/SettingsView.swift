@@ -2,8 +2,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var appState: S3AppState
+    #if os(macOS)
+        @Environment(\.openWindow) var openWindow
+    #endif
     @State private var showingAddKeyAlert = false
     @State private var showingImportKeyAlert = false
+    @State private var showingAbout = false
     @State private var newKeyAlias = ""
     @State private var importKeyAlias = ""
     @State private var importKeyBase64 = ""
@@ -149,6 +153,51 @@ struct SettingsView: View {
                     Label("Nettoyer les transferts abandonnés", systemImage: "trash.badge.plus")
                 }
             }
+
+            Section("À propos") {
+                NavigationLink("Mentions Légales") {
+                    MentionsLegalesView()
+                }
+                NavigationLink("Politique de confidentialité") {
+                    PrivacyPolicyView()
+                }
+
+                #if os(iOS)
+                    Button(action: {
+                        showingAbout = true
+                    }) {
+                        HStack {
+                            Label("À propos de S3 Next", systemImage: "info.circle")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                #endif
+
+                Link(destination: URL(string: "https://github.com/NaviStorm/S3-Next.git")!) {
+                    Label(
+                        "Code source sur GitHub",
+                        systemImage: "chevron.left.forwardslash.chevron.right"
+                    )
+                }
+
+                HStack {
+                    Spacer()
+                    VStack(spacing: 4) {
+                        Text("S3 Next")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Version \(appVersion) (Build \(appBuild))")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
+            }
         }
         .formStyle(.grouped)
         .padding()
@@ -156,9 +205,20 @@ struct SettingsView: View {
             .frame(minWidth: 800, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
         #endif
         .navigationTitle("Réglages")
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
+        }
         .task {
             appState.refreshVersioningStatus()
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    private var appBuild: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
     }
 }
 

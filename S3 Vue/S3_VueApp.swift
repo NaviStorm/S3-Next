@@ -14,6 +14,9 @@ struct S3_VueApp: App {
         }
         #if os(macOS)
             .commands {
+                CommandGroup(replacing: .appInfo) {
+                    AboutButton()
+                }
                 CommandGroup(replacing: .appSettings) {
                     SettingsButton()
                 }
@@ -48,6 +51,12 @@ struct S3_VueApp: App {
         #endif
 
         #if os(macOS)
+            Window("À propos de S3 Next", id: "about-window") {
+                AboutView()
+            }
+            .windowResizability(.contentSize)
+            .windowStyle(.hiddenTitleBar)
+
             Window("Réglages", id: "app-settings") {
                 NavigationStack {
                     SettingsView()
@@ -67,6 +76,15 @@ struct S3_VueApp: App {
                 openWindow(id: "app-settings")
             }
             .keyboardShortcut(",", modifiers: .command)
+        }
+    }
+
+    struct AboutButton: View {
+        @Environment(\.openWindow) var openWindow
+        var body: some View {
+            Button("À propos de S3 Next") {
+                openWindow(id: "about-window")
+            }
         }
     }
 
