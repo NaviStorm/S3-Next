@@ -25,6 +25,9 @@ import UniformTypeIdentifiers
         @State private var deleteIsFolder = false
         @State private var showingSecurity = false
         @State private var showingLifecycle = false
+        @State private var showingTransfers = false
+        @State private var showingHistory = false
+        @State private var selectedItemForInfo: S3Object? = nil
         @State private var infoFolderStats: (count: Int, size: Int64)?
         @State private var isInfoStatsLoading = false
 

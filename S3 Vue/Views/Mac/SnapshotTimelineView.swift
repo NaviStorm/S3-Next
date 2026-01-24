@@ -13,7 +13,7 @@
                 // Header
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("S3 Time Machine")
+                        Text("S3 Next Time Machine")
                             .font(.title2)
                             .fontWeight(.bold)
                         Text("Bucket: \(appState.bucket)")
