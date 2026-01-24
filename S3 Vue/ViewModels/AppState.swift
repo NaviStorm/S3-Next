@@ -88,6 +88,8 @@ public final class S3AppState: ObservableObject {
     @Published var isACLLoading = false
     @Published var isMetadataLoading = false
     @Published var isHistoryLoading = false
+    @Published var isOrphanLoading = false
+    @Published var orphanUploads: [S3ActiveUpload] = []
 
     // Activity History
     @Published var historyStartDate: Date =
@@ -321,33 +323,19 @@ public final class S3AppState: ObservableObject {
     func downloadFile(key: String, versionId: String? = nil) {
         guard let client = client else { return }
         transferManager.downloadFile(key: key, versionId: versionId, client: client) {
-            [weak self] data, filename in
-            self?.saveFileToDisk(data: data, filename: filename)
+            [weak self] url, filename in
+            self?.saveDownloadedFile(url: url, filename: filename)
         }
     }
 
     func previewFile(key: String, versionId: String? = nil) {
         guard let client = client else { return }
 
-        // Use transferManager to download then preview
         transferManager.downloadFile(key: key, versionId: versionId, client: client) {
-            [weak self] data, filename in
-            do {
-                // Save to unique temp folder
-                let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(
-                    UUID().uuidString, isDirectory: true)
-                try FileManager.default.createDirectory(
-                    at: tempDir, withIntermediateDirectories: true)
-                let tempURL = tempDir.appendingPathComponent(filename)
-
-                try data.write(to: tempURL)
-
-                DispatchQueue.main.async {
-                    self?.quickLookURL = tempURL
-                    self?.log("[Preview] File ready: \(tempURL.path)")
-                }
-            } catch {
-                self?.showToast("Échec de l'aperçu", type: .error)
+            [weak self] url, filename in
+            DispatchQueue.main.async {
+                self?.quickLookURL = url
+                self?.log("[Preview] File ready: \(url.path)")
             }
         }
     }
@@ -507,6 +495,63 @@ public final class S3AppState: ObservableObject {
                     self.log("[History] ERROR: \(error.localizedDescription)")
                     self.showToast("Échec du chargement de l'historique", type: .error)
                 }
+            }
+        }
+    }
+
+    func loadOrphanUploads() {
+        guard let client = client else { return }
+        isOrphanLoading = true
+        orphanUploads = []
+
+        Task {
+            do {
+                let uploads = try await client.listMultipartUploads()
+                DispatchQueue.main.async {
+                    self.orphanUploads = uploads
+                    self.isOrphanLoading = false
+                    self.log("[Orphans] Loaded \(uploads.count) active uploads.")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isOrphanLoading = false
+                    self.log("[Orphans] ERROR: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func abortOrphanUpload(key: String, uploadId: String) {
+        guard let client = client else { return }
+        Task {
+            do {
+                try await client.abortMultipartUpload(key: key, uploadId: uploadId)
+                DispatchQueue.main.async {
+                    self.orphanUploads.removeAll { $0.uploadId == uploadId }
+                    self.showToast("Transfert abandonné annulé", type: .success)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.showToast(
+                        "Échec de l'annulation : \(error.localizedDescription)", type: .error)
+                }
+            }
+        }
+    }
+
+    func abortAllOrphanUploads() {
+        guard let client = client else { return }
+        let toAbort = orphanUploads
+        isOrphanLoading = true
+
+        Task {
+            for upload in toAbort {
+                try? await client.abortMultipartUpload(key: upload.key, uploadId: upload.uploadId)
+            }
+            DispatchQueue.main.async {
+                self.orphanUploads = []
+                self.isOrphanLoading = false
+                self.showToast("Tous les transferts abandonnés ont été nettoyés", type: .success)
             }
         }
     }
@@ -694,26 +739,26 @@ public final class S3AppState: ObservableObject {
         return "\(count) items • \(sizeString)"
     }
 
-    private func saveFileToDisk(data: Data, filename: String) {
+    private func saveDownloadedFile(url: URL, filename: String) {
         #if os(macOS)
             let panel = NSSavePanel()
             panel.nameFieldStringValue = filename
             panel.begin { response in
-                if response == .OK, let url = panel.url {
-                    try? data.write(to: url)
+                if response == .OK, let destination = panel.url {
+                    do {
+                        if FileManager.default.fileExists(atPath: destination.path) {
+                            try FileManager.default.removeItem(at: destination)
+                        }
+                        try FileManager.default.copyItem(at: url, to: destination)
+                    } catch {
+                        self.log("[macOS] Save Error: \(error.localizedDescription)")
+                    }
                 }
             }
         #else
-            // iOS: Save to temporary and trigger share
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-            do {
-                try data.write(to: tempURL)
-                log("[iOS] Ready to share: \(tempURL.lastPathComponent)")
-                DispatchQueue.main.async {
-                    self.pendingDownloadURL = tempURL
-                }
-            } catch {
-                log("[iOS] Failed to save file: \(error.localizedDescription)")
+            // iOS: trigger share sheet with the provided URL (already in temp)
+            DispatchQueue.main.async {
+                self.pendingDownloadURL = url
             }
         #endif
     }

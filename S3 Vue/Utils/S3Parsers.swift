@@ -278,12 +278,13 @@ class S3MultipartUploadParser: NSObject, XMLParserDelegate {
 }
 
 class S3PartsParser: NSObject, XMLParserDelegate {
-    var parts: [Int: String] = [:]
+    var parts: [Int: (etag: String, size: Int64)] = [:]
     private var currentElement = ""
     private var currentPartNumber: Int? = nil
     private var currentETag: String? = nil
+    private var currentSize: Int64? = nil
 
-    func parse(data: Data) -> [Int: String] {
+    func parse(data: Data) -> [Int: (etag: String, size: Int64)] {
         let parser = XMLParser(data: data)
         parser.delegate = self
         parser.parse()
@@ -304,6 +305,8 @@ class S3PartsParser: NSObject, XMLParserDelegate {
             currentPartNumber = Int(cleaned)
         } else if currentElement == "ETag" {
             currentETag = cleaned.replacingOccurrences(of: "\"", with: "")
+        } else if currentElement == "Size" {
+            currentSize = Int64(cleaned)
         }
     }
 
@@ -312,22 +315,24 @@ class S3PartsParser: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         if elementName == "Part" {
-            if let num = currentPartNumber, let etag = currentETag {
-                parts[num] = etag
+            if let num = currentPartNumber, let etag = currentETag, let size = currentSize {
+                parts[num] = (etag, size)
             }
             currentPartNumber = nil
             currentETag = nil
+            currentSize = nil
         }
     }
 }
 
 class S3ActiveUploadsParser: NSObject, XMLParserDelegate {
-    var activeUploads: [String: String] = [:]  // Key: UploadId
+    var activeUploads: [S3ActiveUpload] = []
     private var currentElement = ""
     private var currentKey = ""
     private var currentUploadId = ""
+    private var currentInitiatedString = ""
 
-    func parse(data: Data) -> [String: String] {
+    func parse(data: Data) -> [S3ActiveUpload] {
         let parser = XMLParser(data: data)
         parser.delegate = self
         parser.parse()
@@ -348,6 +353,8 @@ class S3ActiveUploadsParser: NSObject, XMLParserDelegate {
             currentKey += cleaned
         } else if currentElement == "UploadId" {
             currentUploadId += cleaned
+        } else if currentElement == "Initiated" {
+            currentInitiatedString += cleaned
         }
     }
 
@@ -356,9 +363,20 @@ class S3ActiveUploadsParser: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         if elementName == "Upload" {
-            activeUploads[currentKey] = currentUploadId
+            let date = parseDate(currentInitiatedString)
+            activeUploads.append(
+                S3ActiveUpload(key: currentKey, uploadId: currentUploadId, initiated: date))
             currentKey = ""
             currentUploadId = ""
+            currentInitiatedString = ""
         }
+    }
+
+    private func parseDate(_ string: String) -> Date {
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: string) { return date }
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalFormatter.date(from: string) ?? Date()
     }
 }

@@ -140,6 +140,15 @@ struct SettingsView: View {
                     Text("Collez ici l'alias et la clé en format Base64 reçus pour l'importation.")
                 }
             }
+
+            Section("Maintenance") {
+                NavigationLink {
+                    MultipartCleanupView()
+                        .environmentObject(appState)
+                } label: {
+                    Label("Nettoyer les transferts abandonnés", systemImage: "trash.badge.plus")
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()

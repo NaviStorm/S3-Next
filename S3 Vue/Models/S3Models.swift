@@ -37,6 +37,13 @@ public struct S3Version: Identifiable, Hashable {
     public let isDeleteMarker: Bool
 }
 
+public struct S3ActiveUpload: Identifiable, Hashable {
+    public var id: String { uploadId }
+    public let key: String
+    public let uploadId: String
+    public let initiated: Date
+}
+
 public enum ToastType {
     case info
     case error

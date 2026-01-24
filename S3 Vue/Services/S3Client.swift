@@ -505,7 +505,7 @@ class S3Client {
         }
     }
 
-    func listMultipartUploads() async throws -> [String: String] {
+    func listMultipartUploads() async throws -> [S3ActiveUpload] {
         let baseUrl = try generateDownloadURL(key: "")
         var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "uploads", value: nil)]
@@ -524,7 +524,8 @@ class S3Client {
         return S3ActiveUploadsParser().parse(data: data)
     }
 
-    func listParts(key: String, uploadId: String) async throws -> [Int: String] {
+    func listParts(key: String, uploadId: String) async throws -> [Int: (etag: String, size: Int64)]
+    {
         let url = try generateDownloadURL(key: key)
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "uploadId", value: uploadId)]
@@ -600,6 +601,33 @@ class S3Client {
         let body = String(data: data, encoding: .utf8) ?? ""
         return body.contains("uri=\"http://acs.amazonaws.com/groups/global/AllUsers\"")
             && body.contains("<Permission>READ</Permission>")
+    }
+
+    func fetchObjectRange(key: String, versionId: String? = nil, range: String) async throws -> (
+        Data, [String: String]
+    ) {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(range, forHTTPHeaderField: "Range")
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        // 206 Partial Content is expected for Range requests
+        if !(200...299).contains(httpResponse.statusCode) && httpResponse.statusCode != 206 {
+            let body = String(data: data, encoding: .utf8) ?? "<no body>"
+            throw S3Error.apiError(httpResponse.statusCode, "Download Range Failed: \(body)")
+        }
+
+        var metadata: [String: String] = [:]
+        for (key, value) in httpResponse.allHeaderFields {
+            if let keyStr = key as? String {
+                metadata[keyStr.lowercased()] = value as? String
+            }
+        }
+        return (data, metadata)
     }
 
     func setObjectACL(key: String, isPublic: Bool) async throws {

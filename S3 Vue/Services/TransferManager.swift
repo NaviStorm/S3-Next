@@ -106,15 +106,30 @@ public final class TransferManager: ObservableObject {
     ) async throws {
         log("[TransferManager] Checking for existing multipart uploads for: \(targetKey)")
 
-        let activeUploads = (try? await client.listMultipartUploads()) ?? [:]
+        let allActive = (try? await client.listMultipartUploads()) ?? []
         var uploadId: String
         var existingParts: [Int: String] = [:]
 
-        if let existingId = activeUploads[targetKey] {
+        if let existing = allActive.first(where: { $0.key == targetKey }) {
+            let existingId = existing.uploadId
             log("[TransferManager] Found existing UploadId: \(existingId). Resuming...")
             uploadId = existingId
-            existingParts = (try? await client.listParts(key: targetKey, uploadId: uploadId)) ?? [:]
-            log("[TransferManager] Already have \(existingParts.count) parts on server.")
+            let fullExisting =
+                (try? await client.listParts(key: targetKey, uploadId: uploadId)) ?? [:]
+
+            let currentPartSize = 5 * 1024 * 1024
+            if let firstPart = fullExisting.values.first, firstPart.size != Int64(currentPartSize) {
+                log(
+                    "[TransferManager] Part size mismatch (Server: \(firstPart.size), Local: \(currentPartSize)). RESTARTING UPLOAD."
+                )
+                try? await client.abortMultipartUpload(key: targetKey, uploadId: uploadId)
+                uploadId = try await client.createMultipartUpload(key: targetKey)
+            } else {
+                for (num, data) in fullExisting {
+                    existingParts[num] = data.etag
+                }
+                log("[TransferManager] Already have \(existingParts.count) valid parts on server.")
+            }
         } else {
             log("[TransferManager] Initializing New Multipart Upload...")
             uploadId = try await client.createMultipartUpload(key: targetKey)
@@ -288,7 +303,7 @@ public final class TransferManager: ObservableObject {
 
     func downloadFile(
         key: String, versionId: String? = nil, client: S3Client,
-        completion: @escaping (Data, String) -> Void
+        completion: @escaping (URL, String) -> Void
     ) {
         let filename = key.components(separatedBy: "/").last ?? "download"
 
@@ -303,13 +318,27 @@ public final class TransferManager: ObservableObject {
         let task = Task {
             do {
                 let metadata = try await client.headObject(key: key, versionId: versionId)
-                var (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+                let sizeStr = metadata["content-length"] ?? "0"
+                let totalSize = Int64(sizeStr) ?? 0
 
-                // Decrypt
-                data = try decryptDataIfNeeded(data: data, metadata: metadata)
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    UUID().uuidString
+                ).appendingPathExtension((filename as NSString).pathExtension)
+
+                if totalSize > 100 * 1024 * 1024 {
+                    // LARGE FILE -> RANGE DOWNLOAD
+                    try await performRangeDownload(
+                        key: key, versionId: versionId, client: client, taskId: taskId,
+                        totalSize: totalSize, destinationURL: tempURL)
+                } else {
+                    // SMALL FILE -> STANDARD DOWNLOAD
+                    var (data, _) = try await client.fetchObjectData(key: key, versionId: versionId)
+                    data = try decryptDataIfNeeded(data: data, metadata: metadata)
+                    try data.write(to: tempURL)
+                }
 
                 await MainActor.run {
-                    completion(data, filename)
+                    completion(tempURL, filename)
                     if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
                         self.transferTasks[index].completedFiles = 1
                         self.transferTasks[index].progress = 1.0
@@ -318,26 +347,78 @@ public final class TransferManager: ObservableObject {
                     self.activeTasks.removeValue(forKey: taskId)
                     self.log("[TransferManager] Download SUCCESS: \(key)")
                 }
-            } catch is CancellationError {
-                await MainActor.run {
-                    if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
-                        self.transferTasks[index].status = .cancelled
-                    }
-                    self.activeTasks.removeValue(forKey: taskId)
-                }
             } catch {
+                let nsError = error as NSError
+                let isCancel =
+                    error is CancellationError
+                    || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+
                 await MainActor.run {
                     if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
-                        self.transferTasks[index].status = .failed
-                        self.transferTasks[index].errorMessage = error.localizedDescription
+                        self.transferTasks[index].status = isCancel ? .cancelled : .failed
+                        self.transferTasks[index].errorMessage =
+                            isCancel ? nil : error.localizedDescription
                     }
                     self.activeTasks.removeValue(forKey: taskId)
-                    self.onTransferError?("Download Failed: \(error.localizedDescription)")
+                    if !isCancel {
+                        self.onTransferError?("Download Failed: \(error.localizedDescription)")
+                    }
                 }
-                log("[TransferManager] Download ERROR: \(error.localizedDescription)")
+                if isCancel {
+                    log("[TransferManager] Download CANCELLED: \(key)")
+                } else {
+                    log("[TransferManager] Download ERROR: \(error.localizedDescription)")
+                }
             }
         }
         activeTasks[taskId] = task
+    }
+
+    private func performRangeDownload(
+        key: String, versionId: String? = nil, client: S3Client, taskId: UUID, totalSize: Int64,
+        destinationURL: URL
+    ) async throws {
+        // Supporter la reprise : si le fichier temporaire existe déjà, on vérifie sa taille
+        var downloadedBytes: Int64 = 0
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            let attr = try FileManager.default.attributesOfItem(atPath: destinationURL.path)
+            downloadedBytes = attr[.size] as? Int64 ?? 0
+            log(
+                "[TransferManager] Found existing partial download (\(downloadedBytes) bytes). Resuming..."
+            )
+        } else {
+            FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
+        }
+
+        let partSize: Int64 = 5 * 1024 * 1024  // 5 Mo pour fluidité UI
+        let fileHandle = try FileHandle(forWritingTo: destinationURL)
+        defer { try? fileHandle.close() }
+
+        if #available(iOS 13.4, macOS 10.15.4, *) {
+            try fileHandle.seekToEnd()
+        } else {
+            fileHandle.seekToEndOfFile()
+        }
+
+        while downloadedBytes < totalSize {
+            try Task.checkCancellation()
+
+            let end = min(downloadedBytes + partSize - 1, totalSize - 1)
+            let range = "bytes=\(downloadedBytes)-\(end)"
+
+            let (data, _) = try await client.fetchObjectRange(
+                key: key, versionId: versionId, range: range)
+            try fileHandle.write(contentsOf: data)
+
+            downloadedBytes += Int64(data.count)
+            let progress = Double(downloadedBytes) / Double(totalSize)
+
+            await MainActor.run {
+                if let index = self.transferTasks.firstIndex(where: { $0.id == taskId }) {
+                    self.transferTasks[index].progress = progress
+                }
+            }
+        }
     }
 
     func downloadFolder(key: String, client: S3Client, completion: @escaping (URL, String) -> Void)
