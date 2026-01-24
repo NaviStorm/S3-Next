@@ -229,46 +229,25 @@ import UniformTypeIdentifiers
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack {
+                HStack(spacing: 8) {
+                    // Menu Principal "Ajouter"
                     Menu {
-                        Picker("Trier par", selection: $appState.sortOption) {
-                            ForEach(S3AppState.SortOption.allCases) { option in
-                                Text(
-                                    option == .name ? "Nom" : (option == .date ? "Date" : "Taille")
-                                ).tag(option)
-                            }
+                        Button(action: { showingCreateFolder = true }) {
+                            Label("Nouveau dossier", systemImage: "folder.badge.plus")
                         }
+
                         Divider()
-                        Toggle("Ascendant", isOn: $appState.sortAscending)
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
 
-                    Button(action: { showingCreateFolder = true }) {
-                        Image(systemName: "folder.badge.plus")
-                    }
-
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gear")
-                    }
-
-                    Menu {
-                        Section("Sélection de la clé (Sticky)") {
-                            Button(action: {
-                                appState.selectedEncryptionAlias = nil
-                            }) {
-                                HStack {
-                                    Label(
-                                        "Sans chiffrement",
-                                        systemImage: appState.selectedEncryptionAlias == nil
-                                            ? "checkmark" : "unlock")
-                                }
+                        Section("Chiffrement (Sticky)") {
+                            Button(action: { appState.selectedEncryptionAlias = nil }) {
+                                Label(
+                                    "Sans chiffrement",
+                                    systemImage: appState.selectedEncryptionAlias == nil
+                                        ? "checkmark" : "unlock")
                             }
 
                             ForEach(appState.encryptionAliases, id: \.self) { alias in
-                                Button(action: {
-                                    appState.selectedEncryptionAlias = alias
-                                }) {
+                                Button(action: { appState.selectedEncryptionAlias = alias }) {
                                     Label(
                                         alias,
                                         systemImage: appState.selectedEncryptionAlias == alias
@@ -277,30 +256,28 @@ import UniformTypeIdentifiers
                             }
                         }
 
-                        Section("Actions d'upload") {
-                            Button(action: {
-                                showingFileImporter = true
-                            }) {
+                        Section("Importer") {
+                            Button(action: { showingFileImporter = true }) {
                                 Label("Fichiers", systemImage: "doc.badge.plus")
                             }
-                            Button(action: {
-                                showingFolderImporter = true
-                            }) {
+                            Button(action: { showingFolderImporter = true }) {
                                 Label("Dossier", systemImage: "folder.badge.plus")
                             }
                         }
                     } label: {
                         ZStack(alignment: .bottomTrailing) {
-                            Image(systemName: "plus.app")
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3)
                             if appState.selectedEncryptionAlias != nil {
                                 Image(systemName: "lock.fill")
                                     .font(.system(size: 8))
                                     .foregroundColor(.orange)
-                                    .offset(x: 2, y: 2)
+                                    .offset(x: 4, y: 4)
                             }
                         }
                     }
 
+                    // Bouton Transferts (Indépendant car important)
                     Button(action: { showingTransfers = true }) {
                         ZStack(alignment: .topTrailing) {
                             Image(systemName: "arrow.up.arrow.down.circle")
@@ -313,14 +290,43 @@ import UniformTypeIdentifiers
                                     .offset(x: 2, y: -2)
                             }
                         }
+                        .font(.title3)
                     }
 
-                    Button(action: { showingHistory = true }) {
-                        Image(systemName: "clock.arrow.circlepath")
-                    }
+                    // Menu "Plus" (Actions secondaires)
+                    Menu {
+                        // Section Tri
+                        Menu {
+                            Picker("Trier par", selection: $appState.sortOption) {
+                                ForEach(S3AppState.SortOption.allCases) { option in
+                                    Text(
+                                        option == .name
+                                            ? "Nom" : (option == .date ? "Date" : "Taille")
+                                    ).tag(option)
+                                }
+                            }
+                            Divider()
+                            Toggle("Ascendant", isOn: $appState.sortAscending)
+                        } label: {
+                            Label("Trier par", systemImage: "arrow.up.arrow.down")
+                        }
 
-                    Button(action: { appState.disconnect() }) {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                        Button(action: { showingHistory = true }) {
+                            Label("Historique des activités", systemImage: "clock.arrow.circlepath")
+                        }
+
+                        Button(action: { showingSettings = true }) {
+                            Label("Réglages", systemImage: "gear")
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive, action: { appState.disconnect() }) {
+                            Label("Déconnexion", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.title3)
                     }
                 }
             }
