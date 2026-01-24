@@ -12,6 +12,7 @@ class S3XMLParser: NSObject, XMLParserDelegate {
     private var currentETag = ""
     private var currentPrefixValue = ""
     private var inContents = false
+    private var isTruncatedString = ""
 
     var isTruncated = false
     var nextContinuationToken: String? = nil
@@ -41,6 +42,10 @@ class S3XMLParser: NSObject, XMLParserDelegate {
             currentETag = ""
         } else if elementName == "CommonPrefixes" {
             currentPrefixValue = ""
+        } else if elementName == "IsTruncated" {
+            isTruncatedString = ""
+        } else if elementName == "NextContinuationToken" {
+            if nextContinuationToken == nil { nextContinuationToken = "" }
         }
     }
 
@@ -59,10 +64,9 @@ class S3XMLParser: NSObject, XMLParserDelegate {
         } else {
             let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
             if currentElement == "IsTruncated" {
-                if !cleaned.isEmpty { isTruncated = (cleaned.lowercased() == "true") }
+                isTruncatedString += cleaned
             } else if currentElement == "NextContinuationToken" {
                 if !cleaned.isEmpty {
-                    if nextContinuationToken == nil { nextContinuationToken = "" }
                     nextContinuationToken? += cleaned
                 }
             } else if currentElement == "Prefix" {
@@ -109,6 +113,8 @@ class S3XMLParser: NSObject, XMLParserDelegate {
                         key: folderKey, size: 0, lastModified: Date(), eTag: nil, isFolder: true)
                 )
             }
+        } else if elementName == "IsTruncated" {
+            isTruncated = (isTruncatedString.lowercased() == "true")
         }
     }
 

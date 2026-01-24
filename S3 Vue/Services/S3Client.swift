@@ -35,45 +35,85 @@ class S3Client {
     // MARK: - Public API
 
     func listObjects(prefix: String = "") async throws -> ([S3Object], String) {
-        let encodedPrefix = awsEncode(prefix)
+        var allObjects: [S3Object] = []
+        var continuationToken: String? = nil
+        var isTruncated = true
 
-        let urlString: String
-        if !endpoint.isEmpty {
-            var baseUrl = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
-            if baseUrl.hasSuffix("/") { baseUrl = String(baseUrl.dropLast()) }
+        while isTruncated {
+            let encodedPrefix = awsEncode(prefix)
+            var urlString: String
 
-            if usePathStyle {
-                urlString = "\(baseUrl)/\(bucket)?delimiter=%2F&prefix=\(encodedPrefix)"
-            } else {
-                if let schemeRange = baseUrl.range(of: "://") {
-                    let scheme = baseUrl[..<schemeRange.upperBound]
-                    let host = baseUrl[schemeRange.upperBound...]
-                    urlString = "\(scheme)\(bucket).\(host)/?delimiter=%2F&prefix=\(encodedPrefix)"
-                } else {
+            if !endpoint.isEmpty {
+                var baseUrl = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+                if baseUrl.hasSuffix("/") { baseUrl = String(baseUrl.dropLast()) }
+
+                if usePathStyle {
                     urlString =
-                        "https://\(bucket).\(endpoint)/?delimiter=%2F&prefix=\(encodedPrefix)"
+                        "\(baseUrl)/\(bucket)?delimiter=%2F&list-type=2&prefix=\(encodedPrefix)"
+                } else {
+                    if let schemeRange = baseUrl.range(of: "://") {
+                        let scheme = baseUrl[..<schemeRange.upperBound]
+                        let host = baseUrl[schemeRange.upperBound...]
+                        urlString =
+                            "\(scheme)\(bucket).\(host)/?delimiter=%2F&list-type=2&prefix=\(encodedPrefix)"
+                    } else {
+                        urlString =
+                            "https://\(bucket).\(endpoint)/?delimiter=%2F&list-type=2&prefix=\(encodedPrefix)"
+                    }
                 }
+            } else {
+                let host = "\(bucket).s3.\(region).amazonaws.com"
+                urlString = "https://\(host)/?delimiter=%2F&list-type=2&prefix=\(encodedPrefix)"
             }
-        } else {
-            let host = "\(bucket).s3.\(region).amazonaws.com"
-            urlString = "https://\(host)/?delimiter=%2F&list-type=2&prefix=\(encodedPrefix)"
+
+            if let token = continuationToken {
+                urlString += "&continuation-token=\(awsEncode(token))"
+            }
+
+            print("[S3] URL: \(urlString)")
+
+            guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            try signRequest(request: &request, payload: "")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw S3Error.invalidResponse
+            }
+
+            print("[S3] Status: \(httpResponse.statusCode)")
+
+            if !(200...299).contains(httpResponse.statusCode) {
+                let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+                print("[S3] Error: \(body)")
+                throw S3Error.apiError(httpResponse.statusCode, "ListObjects Failed: \(body)")
+            }
+
+            let parser = S3XMLParser(prefix: prefix)
+            let objects = parser.parse(data: data)
+            allObjects.append(contentsOf: objects)
+
+            print("[S3] Page: \(objects.count) objects. Total: \(allObjects.count)")
+            print(
+                "[S3] Truncated: \(parser.isTruncated), nextToken: \(parser.nextContinuationToken ?? "nil")"
+            )
+
+            if parser.isTruncated {
+                continuationToken = parser.nextContinuationToken
+                if continuationToken == nil {
+                    print(
+                        "[S3] WARNING: isTruncated refers to true but nextContinuationToken is nil. Breaking."
+                    )
+                    isTruncated = false
+                }
+            } else {
+                isTruncated = false
+            }
         }
 
-        guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
-
-        if !(200...299).contains(httpResponse.statusCode) {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw S3Error.apiError(httpResponse.statusCode, "ListObjects Failed: \(body)")
-        }
-
-        return parseListObjectsResponse(data: data, prefix: prefix)
+        return (allObjects, "")
     }
 
     func calculateFolderStats(prefix: String) async throws -> (Int, Int64) {
