@@ -15,6 +15,16 @@ public final class S3AppState: ObservableObject {
     // Transfer Management
     @Published var transferManager = TransferManager()
 
+    // Site Management
+    @Published var savedSites: [S3Site] = []
+    @Published var selectedSiteId: UUID? {
+        didSet {
+            if let site = savedSites.first(where: { $0.id == selectedSiteId }) {
+                selectSite(site)
+            }
+        }
+    }
+
     func showToast(_ message: String, type: ToastType = .info) {
         DispatchQueue.main.async {
             self.toastMessage = message
@@ -211,6 +221,8 @@ public final class S3AppState: ObservableObject {
         if let savedAliases = UserDefaults.standard.stringArray(forKey: "encryptionAliases") {
             encryptionAliases = savedAliases
         }
+
+        loadSites()
     }
 
     @Published var availableBuckets: [String] = []
@@ -1218,5 +1230,85 @@ public final class S3AppState: ObservableObject {
             self.loadObjects()
             self.refreshVersioningStatus()
         }
+    }
+
+    // MARK: - Site Management
+
+    func saveSites() {
+        if let encoded = try? JSONEncoder().encode(savedSites) {
+            UserDefaults.standard.set(encoded, forKey: "savedSites")
+        }
+    }
+
+    func loadSites() {
+        if let data = UserDefaults.standard.data(forKey: "savedSites"),
+            let decoded = try? JSONDecoder().decode([S3Site].self, from: data)
+        {
+            savedSites = decoded
+        }
+    }
+
+    func selectSite(_ site: S3Site) {
+        log("Selecting site: \(site.name)")
+        accessKey = site.accessKey
+        bucket = site.bucket
+        region = site.region
+        endpoint = site.endpoint
+        usePathStyle = site.usePathStyle
+
+        // Load secret from keychain for this site
+        if let secret = KeychainHelper.shared.read(service: kService, account: site.id.uuidString) {
+            secretKey = secret
+        } else if site.accessKey == accessKey,
+            let oldSecret = KeychainHelper.shared.read(service: kService, account: kAccount)
+        {
+            // Fallback to global secret if matches
+            secretKey = oldSecret
+        } else {
+            secretKey = ""
+        }
+
+        saveConfig()
+    }
+
+    func clearFields() {
+        accessKey = ""
+        secretKey = ""
+        bucket = ""
+        region = "us-east-1"
+        endpoint = "https://s3.fr1.next.ink"
+        usePathStyle = true
+        errorMessage = nil
+    }
+
+    func deleteSite(at indexSet: IndexSet) {
+        for index in indexSet {
+            let site = savedSites[index]
+            KeychainHelper.shared.delete(service: kService, account: site.id.uuidString)
+        }
+        savedSites.remove(atOffsets: indexSet)
+        saveSites()
+    }
+
+    func saveCurrentAsSite(named name: String) {
+        let newSite = S3Site(
+            name: name,
+            accessKey: accessKey,
+            region: region,
+            bucket: bucket,
+            endpoint: endpoint,
+            usePathStyle: usePathStyle
+        )
+
+        // Save secret for this specific site
+        KeychainHelper.shared.save(secretKey, service: kService, account: newSite.id.uuidString)
+
+        if let index = savedSites.firstIndex(where: { $0.name == name }) {
+            savedSites[index] = newSite
+        } else {
+            savedSites.append(newSite)
+        }
+        saveSites()
+        showToast("Site '\(name)' enregistré", type: .success)
     }
 }
