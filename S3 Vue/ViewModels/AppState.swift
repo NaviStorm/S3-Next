@@ -213,33 +213,53 @@ public final class S3AppState: ObservableObject {
         }
     }
 
+    @Published var availableBuckets: [String] = []
+
     func connect() async {
         log("connect() called. Resetting state...")
         DispatchQueue.main.async {
             self.saveConfig()  // Save immediately when user clicks Connect
             self.isLoading = true
             self.errorMessage = nil
+            self.availableBuckets = []
         }
 
         let newClient = S3Client(
             accessKey: accessKey, secretKey: secretKey, region: region, bucket: bucket,
             endpoint: endpoint, usePathStyle: usePathStyle)
 
-        log("S3Client initialized. Testing connection to bucket: \(self.bucket)...")
+        if bucket.isEmpty {
+            log("No bucket specified. Testing connection via listBuckets...")
+        } else {
+            log("S3Client initialized. Testing connection to bucket: \(self.bucket)...")
+        }
 
         do {
-            // Test connection by listing root
-            let _ = try await newClient.listObjects(prefix: "")
-            log("Connection test successful (Root listed).")
+            if bucket.isEmpty {
+                let buckets = try await newClient.listBuckets()
+                log("Connection test successful (Buckets listed: \(buckets.count)).")
 
-            DispatchQueue.main.async {
-                self.log("Connection confirmed. Switching to logged in state.")
-                self.client = newClient
-                self.isLoggedIn = true
-                self.isLoading = false
-                self.saveConfig()
-                self.loadObjects()
-                self.refreshVersioningStatus()
+                DispatchQueue.main.async {
+                    self.client = newClient
+                    self.isLoggedIn = true
+                    self.isLoading = false
+                    self.availableBuckets = buckets
+                    self.saveConfig()
+                }
+            } else {
+                // Test connection by listing root
+                let _ = try await newClient.listObjects(prefix: "")
+                log("Connection test successful (Root listed).")
+
+                DispatchQueue.main.async {
+                    self.log("Connection confirmed. Switching to logged in state.")
+                    self.client = newClient
+                    self.isLoggedIn = true
+                    self.isLoading = false
+                    self.saveConfig()
+                    self.loadObjects()
+                    self.refreshVersioningStatus()
+                }
             }
         } catch {
             DispatchQueue.main.async {
@@ -937,7 +957,7 @@ public final class S3AppState: ObservableObject {
         }
     }
 
-    private func saveConfig() {
+    func saveConfig() {
         UserDefaults.standard.set(accessKey, forKey: "accessKey")
         UserDefaults.standard.set(bucket, forKey: "bucket")
         UserDefaults.standard.set(region, forKey: "region")

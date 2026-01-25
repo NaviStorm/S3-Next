@@ -212,7 +212,12 @@ class S3Client {
     func generateDownloadURL(key: String, versionId: String? = nil) throws -> URL {
         let encodedKey = awsEncode(key, encodeSlash: false)
         var urlString: String
-        if !endpoint.isEmpty {
+
+        if bucket.isEmpty {
+            // Service-level URL (e.g. for ListBuckets)
+            urlString = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+            if urlString.hasSuffix("/") { urlString = String(urlString.dropLast()) }
+        } else if !endpoint.isEmpty {
             var baseUrl = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
             if baseUrl.hasSuffix("/") { baseUrl = String(baseUrl.dropLast()) }
             if usePathStyle {
@@ -230,15 +235,36 @@ class S3Client {
             let host = "\(bucket).s3.\(region).amazonaws.com"
             urlString = "https://\(host)/\(encodedKey)"
         }
+
         if let vId = versionId {
             urlString += (urlString.contains("?") ? "&" : "?") + "versionId=\(vId)"
         }
+
         // Remove trailing slash if key is empty for bucket-level operations (like create)
         if key.isEmpty && urlString.hasSuffix("/") {
             urlString = String(urlString.dropLast())
         }
+
         guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
         return url
+    }
+
+    func listBuckets() async throws -> [String] {
+        let url = try generateDownloadURL(key: "")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw S3Error.apiError(httpResponse.statusCode, "ListBuckets Failed: \(body)")
+        }
+
+        return S3BucketParser().parse(data: data)
     }
 
     func createBucket(objectLockEnabled: Bool = false, acl: String? = nil) async throws {
@@ -259,7 +285,7 @@ class S3Client {
         }
 
         if objectLockEnabled {
-            request.setValue("Enabled", forHTTPHeaderField: "x-amz-bucket-object-lock-enabled")
+            request.setValue("true", forHTTPHeaderField: "x-amz-bucket-object-lock-enabled")
         }
         if let aclValue = acl {
             request.setValue(aclValue, forHTTPHeaderField: "x-amz-acl")

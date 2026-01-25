@@ -38,6 +38,8 @@ import UniformTypeIdentifiers
                         ProgressView("Chargement...")
                     } else if let error = appState.errorMessage {
                         errorView(error)
+                    } else if appState.bucket.isEmpty {
+                        noBucketView
                     } else if appState.objects.isEmpty {
                         emptyView
                     } else {
@@ -360,11 +362,66 @@ import UniformTypeIdentifiers
             .padding()
         }
 
+        private var noBucketView: some View {
+            VStack(spacing: 25) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 60))
+                    .foregroundColor(.blue)
+
+                VStack(spacing: 12) {
+                    Text("Bienvenue sur S3 Next")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    Text(
+                        "Vous êtes connecté à votre service S3, mais aucun bucket n'est sélectionné."
+                    )
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 40)
+                }
+
+                HStack(spacing: 15) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Label("Créer un bucket", systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    if !appState.availableBuckets.isEmpty {
+                        Menu {
+                            ForEach(appState.availableBuckets, id: \.self) { bname in
+                                Button(bname) {
+                                    appState.bucket = bname
+                                    appState.saveConfig()
+                                    appState.loadObjects()
+                                }
+                            }
+                        } label: {
+                            Label("Choisir existant", systemImage: "list.bullet.indent")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+        }
+
         private var emptyView: some View {
             VStack(spacing: 20) {
-                Image(systemName: "folder.badge.questionmark").font(.largeTitle).foregroundColor(
-                    .secondary)
-                Text("Aucun élément trouvé").font(.headline).foregroundColor(.secondary)
+                Image(systemName: "folder.badge.questionmark")
+                    .font(.system(size: 50))
+                    .foregroundColor(.secondary)
+                Text("C'est un peu vide ici...")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+
+                Button("Rafraîchir") {
+                    appState.loadObjects()
+                }
+                .buttonStyle(.borderless)
+                .font(.subheadline)
             }
         }
 

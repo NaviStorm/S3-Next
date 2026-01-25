@@ -87,12 +87,7 @@ struct CreateBucketView: View {
                 Divider()
                 HStack {
                     Button("Annuler") {
-                        #if os(macOS)
-                            NSApp.stopModal()
-                            NSApplication.shared.keyWindow?.close()
-                        #else
-                            dismiss()
-                        #endif
+                        dismiss()
                     }
                     .keyboardShortcut(.cancelAction)
 
@@ -139,32 +134,7 @@ struct CreateBucketView: View {
         #endif
         .onAppear {
             appState.bucketActionError = nil
-            #if os(macOS)
-                if let window = NSApplication.shared.keyWindow {
-                    window.styleMask.remove(.resizable)
-                    window.styleMask.remove(.miniaturizable)
-                    window.title = "Création de bucket"
-                    window.center()
-
-                    // On lance le mode modal après un court délai pour laisser la fenêtre s'afficher
-                    DispatchQueue.main.async {
-                        NSApp.runModal(for: window)
-                    }
-                }
-            #endif
         }
-        #if os(macOS)
-            .onReceive(
-                NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
-            ) { notification in
-                if let window = notification.object as? NSWindow,
-                    window.identifier?.rawValue == "create-bucket"
-                        || window.title == "Création de bucket"
-                {
-                    NSApp.stopModal()
-                }
-            }
-        #endif
     }
 
     private func createBucket() {
@@ -179,12 +149,7 @@ struct CreateBucketView: View {
             await MainActor.run {
                 isCreating = false
                 if appState.bucketActionError == nil {
-                    #if os(macOS)
-                        NSApp.stopModal()
-                        NSApplication.shared.keyWindow?.close()
-                    #else
-                        dismiss()
-                    #endif
+                    dismiss()
                 }
             }
         }

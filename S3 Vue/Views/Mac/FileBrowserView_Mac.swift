@@ -143,6 +143,8 @@
                             Spacer()
                             ProgressView("Chargement...")
                             Spacer()
+                        } else if appState.bucket.isEmpty {
+                            noBucketView
                         } else {
                             Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
@@ -524,6 +526,63 @@
                 if let validDesc = desc { return validDesc }
             } catch {}
             return UTType(filenameExtension: ext)?.localizedDescription ?? ext.uppercased()
+        }
+
+        private var noBucketView: some View {
+            VStack(spacing: 30) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 80))
+                    .foregroundColor(.blue)
+
+                VStack(spacing: 15) {
+                    Text("Bienvenue sur S3 Next")
+                        .font(.title)
+                        .fontWeight(.bold)
+
+                    Text("Connecté au service, mais aucun bucket n'a été sélectionné.")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+
+                    Text("Utilisez les options ci-dessous pour commencer.")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 20) {
+                    Button {
+                        openWindow(id: "create-bucket")
+                    } label: {
+                        Label("Créer un nouveau bucket", systemImage: "plus.circle")
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    if !appState.availableBuckets.isEmpty {
+                        Menu {
+                            ForEach(appState.availableBuckets, id: \.self) { bname in
+                                Button(bname) {
+                                    appState.bucket = bname
+                                    appState.saveConfig()
+                                    appState.loadObjects()
+                                }
+                            }
+                        } label: {
+                            Label(
+                                "Sélectionner un bucket existant", systemImage: "list.bullet.indent"
+                            )
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                    }
+                }
+                .padding(.top, 10)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
         }
     }
 
