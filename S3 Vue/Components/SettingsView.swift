@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var showingAddKeyAlert = false
     @State private var showingImportKeyAlert = false
     @State private var showingAbout = false
+    @State private var showingCreateBucketSheet = false
     @State private var newKeyAlias = ""
     @State private var importKeyAlias = ""
     @State private var importKeyBase64 = ""
@@ -17,7 +18,21 @@ struct SettingsView: View {
             Section("Configuration du Bucket") {
                 LabeledContent("Nom du Bucket", value: appState.bucket)
                 LabeledContent("Région", value: appState.region)
-                LabeledContent("Endpoint", value: appState.endpoint)
+                Button {
+                    #if os(macOS)
+                        openWindow(id: "create-bucket")
+                    #else
+                        showingCreateBucketSheet = true
+                    #endif
+                } label: {
+                    Label("Créer un nouveau bucket", systemImage: "plus.circle")
+                }
+                #if os(iOS)
+                    .sheet(isPresented: $showingCreateBucketSheet) {
+                        CreateBucketView()
+                        .environmentObject(appState)
+                    }
+                #endif
             }
 
             Section {

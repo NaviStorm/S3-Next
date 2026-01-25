@@ -233,8 +233,48 @@ class S3Client {
         if let vId = versionId {
             urlString += (urlString.contains("?") ? "&" : "?") + "versionId=\(vId)"
         }
+        // Remove trailing slash if key is empty for bucket-level operations (like create)
+        if key.isEmpty && urlString.hasSuffix("/") {
+            urlString = String(urlString.dropLast())
+        }
         guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
         return url
+    }
+
+    func createBucket(objectLockEnabled: Bool = false, acl: String? = nil) async throws {
+        let url = try generateDownloadURL(key: "")
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+
+        var bodyData = Data()
+        if region != "us-east-1" && !endpoint.isEmpty && endpoint.contains("amazonaws.com") {
+            // AWS S3 standard region doesn't and often errors if provided.
+            // But non-us-east-1 standard AWS might need LocationConstraint.
+            let xml = """
+                <CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                   <LocationConstraint>\(region)</LocationConstraint>
+                </CreateBucketConfiguration>
+                """
+            bodyData = xml.data(using: .utf8)!
+        }
+
+        if objectLockEnabled {
+            request.setValue("Enabled", forHTTPHeaderField: "x-amz-bucket-object-lock-enabled")
+        }
+        if let aclValue = acl {
+            request.setValue(aclValue, forHTTPHeaderField: "x-amz-acl")
+        }
+
+        try signRequest(request: &request, payload: bodyData)
+        request.httpBody = bodyData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw S3Error.apiError(httpResponse.statusCode, "CreateBucket Failed: \(body)")
+        }
     }
 
     func deleteObject(key: String) async throws {

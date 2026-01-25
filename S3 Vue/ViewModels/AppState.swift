@@ -6,6 +6,7 @@ public final class S3AppState: ObservableObject {
     @Published var isLoggedIn = false
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var bucketActionError: String?
 
     // Toast
     @Published var toastMessage: String?
@@ -245,6 +246,53 @@ public final class S3AppState: ObservableObject {
                 self.isLoading = false
                 self.errorMessage = "Connection failed: \(error.localizedDescription)"
                 self.log("[Connection Error] \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func createBucket(name: String, objectLock: Bool, versioning: Bool, acl: String?) async {
+        log(
+            "createBucket() called for: \(name) (Versioning: \(versioning), ObjectLock: \(objectLock), ACL: \(acl ?? "none"))"
+        )
+        await MainActor.run {
+            self.isLoading = true
+            self.bucketActionError = nil
+        }
+
+        let createClient = S3Client(
+            accessKey: accessKey, secretKey: secretKey, region: region, bucket: name,
+            endpoint: endpoint, usePathStyle: usePathStyle)
+
+        do {
+            // 1. Create the bucket with Object Lock and ACL
+            try await createClient.createBucket(objectLockEnabled: objectLock, acl: acl)
+            log("Bucket created: \(name)")
+
+            // 2. Enable versioning if requested (must be done after creation)
+            if versioning {
+                try await createClient.putBucketVersioning(enabled: true)
+                log("Versioning enabled for: \(name)")
+            }
+
+            await MainActor.run {
+                self.isLoading = false
+                self.showToast("Bucket '\(name)' créé avec succès !", type: .success)
+                // Automatically set as current bucket if successful creation
+                self.bucket = name
+                self.saveConfig()
+
+                // Switch to the new bucket
+                self.client = createClient
+                self.isLoggedIn = true
+                self.loadObjects()
+                self.refreshVersioningStatus()
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+                self.bucketActionError = "Failed to create bucket: \(error.localizedDescription)"
+                self.log("[Create Bucket Error] \(error.localizedDescription)")
+                self.showToast("Échec de création: \(error.localizedDescription)", type: .error)
             }
         }
     }
