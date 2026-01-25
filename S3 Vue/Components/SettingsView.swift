@@ -15,7 +15,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Configuration du Bucket") {
+            Section {
                 LabeledContent("Nom du Bucket", value: appState.bucket)
                 LabeledContent("Région", value: appState.region)
                 Button {
@@ -33,7 +33,15 @@ struct SettingsView: View {
                         .environmentObject(appState)
                     }
                 #endif
+            } header: {
+                Text("Configuration du Bucket")
+            } footer: {
+                if !appState.isLoggedIn {
+                    Text("Connectez-vous pour créer un nouveau bucket.")
+                        .foregroundColor(.orange)
+                }
             }
+            .disabled(!appState.isLoggedIn)
 
             Section {
                 HStack {
@@ -71,10 +79,16 @@ struct SettingsView: View {
             } header: {
                 Text("Bucket")
             } footer: {
-                Text(
-                    "L'activation du versioning vous permet de préserver, récupérer et restaurer chaque version de chaque objet stocké dans votre bucket."
-                )
+                if !appState.isLoggedIn {
+                    Text("Connectez-vous pour gérer le versioning.")
+                        .foregroundColor(.orange)
+                } else {
+                    Text(
+                        "L'activation du versioning vous permet de préserver, récupérer et restaurer chaque version de chaque objet stocké dans votre bucket."
+                    )
+                }
             }
+            .disabled(!appState.isLoggedIn)
 
             Section("Chiffrement Client-Side (CSE)") {
                 if appState.encryptionAliases.isEmpty {
@@ -160,14 +174,22 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Maintenance") {
+            Section {
                 NavigationLink {
                     MultipartCleanupView()
                         .environmentObject(appState)
                 } label: {
                     Label("Nettoyer les transferts abandonnés", systemImage: "trash.badge.plus")
                 }
+            } header: {
+                Text("Maintenance")
+            } footer: {
+                if !appState.isLoggedIn {
+                    Text("Connectez-vous pour accéder aux outils de maintenance.")
+                        .foregroundColor(.orange)
+                }
             }
+            .disabled(!appState.isLoggedIn)
 
             Section("À propos") {
                 NavigationLink("Mentions Légales") {
