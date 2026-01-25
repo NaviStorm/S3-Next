@@ -394,9 +394,7 @@ import UniformTypeIdentifiers
                         Menu {
                             ForEach(appState.availableBuckets, id: \.self) { bname in
                                 Button(bname) {
-                                    appState.bucket = bname
-                                    appState.saveConfig()
-                                    appState.loadObjects()
+                                    appState.selectBucket(named: bname)
                                 }
                             }
                         } label: {

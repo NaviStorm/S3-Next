@@ -1200,4 +1200,23 @@ public final class S3AppState: ObservableObject {
         bucketLifecycleRules.remove(at: index)
         saveLifecycleRules()
     }
+
+    func selectBucket(named name: String) {
+        log("selectBucket(named: \(name)) called.")
+        DispatchQueue.main.async {
+            self.bucket = name
+            self.saveConfig()
+
+            // Re-initialize client with the selected bucket
+            self.client = S3Client(
+                accessKey: self.accessKey, secretKey: self.secretKey, region: self.region,
+                bucket: self.bucket,
+                endpoint: self.endpoint, usePathStyle: self.usePathStyle)
+
+            self.log("S3Client re-initialized for bucket: \(self.bucket)")
+
+            self.loadObjects()
+            self.refreshVersioningStatus()
+        }
+    }
 }
