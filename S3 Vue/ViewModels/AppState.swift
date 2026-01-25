@@ -297,6 +297,80 @@ public final class S3AppState: ObservableObject {
         }
     }
 
+    func deleteBucket() async {
+        guard let client = client else { return }
+
+        log("deleteBucket() called for: \(self.bucket)")
+        await MainActor.run {
+            self.isLoading = true
+        }
+
+        do {
+            try await client.deleteBucket()
+            log("Bucket deleted: \(self.bucket)")
+
+            await MainActor.run {
+                self.isLoading = false
+                self.showToast("Bucket '\(self.bucket)' supprimé avec succès !", type: .success)
+                self.disconnect()
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+                let errorMsg = error.localizedDescription
+                self.log("[Delete Bucket Error] \(errorMsg)")
+
+                if errorMsg.contains("BucketNotEmpty") {
+                    self.showToast(
+                        "Erreur : Le bucket n'est pas vide (versions cachées ?)", type: .error)
+                } else {
+                    self.showToast("Échec de suppression: \(errorMsg)", type: .error)
+                }
+            }
+        }
+    }
+
+    func emptyAndDeleteBucket() async {
+        guard let client = client else { return }
+        let bucketName = self.bucket
+
+        log("emptyAndDeleteBucket() started for: \(bucketName)")
+        await MainActor.run { self.isLoading = true }
+
+        do {
+            // 1. Abort all multipart uploads
+            log("[Step 1/3] Aborting all multipart uploads...")
+            let uploads = try await client.listMultipartUploads()
+            for upload in uploads {
+                try? await client.abortMultipartUpload(key: upload.key, uploadId: upload.uploadId)
+            }
+
+            // 2. Delete all versions of all objects (including delete markers)
+            log("[Step 2/3] Deleting all versions and delete markers...")
+            let allVersions = try await client.listAllVersions(prefix: "")
+            for version in allVersions {
+                try await client.deleteObject(key: version.key, versionId: version.versionId)
+            }
+
+            // 3. Delete the bucket itself
+            log("[Step 3/3] Deleting the bucket...")
+            try await client.deleteBucket()
+
+            await MainActor.run {
+                self.isLoading = false
+                self.showToast("Bucket '\(bucketName)' vidé et supprimé !", type: .success)
+                self.disconnect()
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+                self.log("[Force Delete Error] \(error.localizedDescription)")
+                self.showToast(
+                    "Échec du vidage/suppression: \(error.localizedDescription)", type: .error)
+            }
+        }
+    }
+
     func disconnect() {
         isLoggedIn = false
         client = nil

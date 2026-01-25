@@ -277,8 +277,24 @@ class S3Client {
         }
     }
 
-    func deleteObject(key: String) async throws {
-        let url = try generateDownloadURL(key: key)
+    func deleteBucket() async throws {
+        let url = try generateDownloadURL(key: "")
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw S3Error.apiError(httpResponse.statusCode, "DeleteBucket Failed: \(body)")
+        }
+    }
+
+    func deleteObject(key: String, versionId: String? = nil) async throws {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         try signRequest(request: &request, payload: "")
@@ -286,7 +302,8 @@ class S3Client {
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
-            throw S3Error.apiError(httpResponse.statusCode, "Delete Failed: \(body)")
+            let versionInfo = versionId != nil ? " (Version: \(versionId!))" : ""
+            throw S3Error.apiError(httpResponse.statusCode, "Delete Failed\(versionInfo): \(body)")
         }
     }
 

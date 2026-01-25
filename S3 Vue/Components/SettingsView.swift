@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var newKeyAlias = ""
     @State private var importKeyAlias = ""
     @State private var importKeyBase64 = ""
+    @State private var showingDeleteBucketAlert = false
+    @State private var showingForceDeleteAlert = false
 
     var body: some View {
         Form {
@@ -234,6 +236,50 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 8)
                 .listRowBackground(Color.clear)
+            }
+
+            if appState.isLoggedIn {
+                Section {
+                    Button(role: .destructive) {
+                        showingDeleteBucketAlert = true
+                    } label: {
+                        Label("Supprimer le bucket définitivement", systemImage: "trash.fill")
+                    }
+                    .alert("Supprimer le bucket ?", isPresented: $showingDeleteBucketAlert) {
+                        Button("Supprimer", role: .destructive) {
+                            Task {
+                                await appState.deleteBucket()
+                            }
+                        }
+                        Button("Nettoyage forcé...", role: .none) {
+                            showingForceDeleteAlert = true
+                        }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text(
+                            "Cette action est irréversible. Le bucket '\(appState.bucket)' doit être VIDE.\n\nSi vous avez des versions cachées ou des transferts interrompus, utilisez le 'Nettoyage forcé'."
+                        )
+                    }
+                    .alert("Nettoyage et suppression ?", isPresented: $showingForceDeleteAlert) {
+                        Button("Tout vider et supprimer", role: .destructive) {
+                            Task {
+                                await appState.emptyAndDeleteBucket()
+                            }
+                        }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text(
+                            "ATTENTION : Cette opération va supprimer DÉFINITIVEMENT tous les objets, toutes les versions et tous les transferts en cours avant de supprimer le bucket '\(appState.bucket)'."
+                        )
+                    }
+                } header: {
+                    Text("Zone de Danger")
+                } footer: {
+                    Text(
+                        "Attention : La suppression d'un bucket est une opération critique. Assurez-vous d'avoir sauvegardé vos données importantes."
+                    )
+                    .foregroundColor(.red)
+                }
             }
         }
         .formStyle(.grouped)
