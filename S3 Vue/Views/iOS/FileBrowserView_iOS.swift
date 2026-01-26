@@ -325,6 +325,26 @@ import UniformTypeIdentifiers
                             Label("Trier par", systemImage: "arrow.up.arrow.down")
                         }
 
+                        // Nouveau menu Bucket
+                        Menu {
+                            if !appState.availableBuckets.isEmpty {
+                                ForEach(appState.availableBuckets, id: \.self) { bname in
+                                    Button(action: { appState.selectBucket(named: bname) }) {
+                                        HStack {
+                                            Text(bname)
+                                            if bname == appState.bucket {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text("Aucun bucket disponible")
+                            }
+                        } label: {
+                            Label("Buckets", systemImage: "archivebox")
+                        }
+
                         Button(action: { showingHistory = true }) {
                             Label(
                                 "Historique des Activités", systemImage: "clock.arrow.2.circlepath")

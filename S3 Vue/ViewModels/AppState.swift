@@ -247,15 +247,16 @@ public final class S3AppState: ObservableObject {
         }
 
         do {
-            if bucket.isEmpty {
-                let buckets = try await newClient.listBuckets()
-                log("Connection test successful (Buckets listed: \(buckets.count)).")
+            // Toujours essayer de lister les buckets pour remplir availableBuckets au cas où on voudrait changer
+            let buckets = try? await newClient.listBuckets()
 
+            if bucket.isEmpty {
+                log("No bucket specified. Connection test successful via listBuckets.")
                 DispatchQueue.main.async {
                     self.client = newClient
                     self.isLoggedIn = true
                     self.isLoading = false
-                    self.availableBuckets = buckets
+                    self.availableBuckets = buckets ?? []
                     self.saveConfig()
                 }
             } else {
@@ -268,6 +269,7 @@ public final class S3AppState: ObservableObject {
                     self.client = newClient
                     self.isLoggedIn = true
                     self.isLoading = false
+                    self.availableBuckets = buckets ?? []  // On garde les buckets mis à jour
                     self.saveConfig()
                     self.loadObjects()
                     self.refreshVersioningStatus()
@@ -309,15 +311,15 @@ public final class S3AppState: ObservableObject {
             await MainActor.run {
                 self.isLoading = false
                 self.showToast("Bucket '\(name)' créé avec succès !", type: .success)
-                // Automatically set as current bucket if successful creation
-                self.bucket = name
-                self.saveConfig()
 
-                // Switch to the new bucket
-                self.client = createClient
-                self.isLoggedIn = true
-                self.loadObjects()
-                self.refreshVersioningStatus()
+                // Refresh the list of buckets to include the new one
+                Task {
+                    if let buckets = try? await createClient.listBuckets() {
+                        await MainActor.run {
+                            self.availableBuckets = buckets
+                        }
+                    }
+                }
             }
         } catch {
             await MainActor.run {
@@ -1214,6 +1216,11 @@ public final class S3AppState: ObservableObject {
     }
 
     func selectBucket(named name: String) {
+        if self.bucket == name && self.isLoggedIn {
+            log("selectBucket: Bucket '\(name)' already active. Skipping.")
+            return
+        }
+
         log("selectBucket(named: \(name)) called.")
         DispatchQueue.main.async {
             self.bucket = name

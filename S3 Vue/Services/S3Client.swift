@@ -250,7 +250,15 @@ class S3Client {
     }
 
     func listBuckets() async throws -> [String] {
-        let url = try generateDownloadURL(key: "")
+        var urlString: String
+        if !endpoint.isEmpty {
+            urlString = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+            if urlString.hasSuffix("/") { urlString = String(urlString.dropLast()) }
+        } else {
+            urlString = "https://s3.\(region).amazonaws.com"
+        }
+
+        guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
 
