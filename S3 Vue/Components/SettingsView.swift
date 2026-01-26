@@ -20,21 +20,23 @@ struct SettingsView: View {
             Section {
                 LabeledContent("Nom du Bucket", value: appState.bucket)
                 LabeledContent("Région", value: appState.region)
-                Button {
-                    #if os(macOS)
-                        openWindow(id: "create-bucket")
-                    #else
-                        showingCreateBucketSheet = true
-                    #endif
-                } label: {
-                    Label("Créer un nouveau bucket", systemImage: "plus.circle")
-                }
-                #if os(iOS)
-                    .sheet(isPresented: $showingCreateBucketSheet) {
-                        CreateBucketView()
-                        .environmentObject(appState)
+                if !appState.isNextS3 {
+                    Button {
+                        #if os(macOS)
+                            openWindow(id: "create-bucket")
+                        #else
+                            showingCreateBucketSheet = true
+                        #endif
+                    } label: {
+                        Label("Créer un nouveau bucket", systemImage: "plus.circle")
                     }
-                #endif
+                    #if os(iOS)
+                        .sheet(isPresented: $showingCreateBucketSheet) {
+                            CreateBucketView()
+                            .environmentObject(appState)
+                        }
+                    #endif
+                }
             } header: {
                 Text("Configuration du Bucket")
             } footer: {
@@ -238,7 +240,7 @@ struct SettingsView: View {
                 .listRowBackground(Color.clear)
             }
 
-            if appState.isLoggedIn {
+            if appState.isLoggedIn && !appState.isNextS3 {
                 Section {
                     Button(role: .destructive) {
                         showingDeleteBucketAlert = true

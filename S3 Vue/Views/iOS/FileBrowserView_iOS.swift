@@ -326,23 +326,25 @@ import UniformTypeIdentifiers
                         }
 
                         // Nouveau menu Bucket
-                        Menu {
-                            if !appState.availableBuckets.isEmpty {
-                                ForEach(appState.availableBuckets, id: \.self) { bname in
-                                    Button(action: { appState.selectBucket(named: bname) }) {
-                                        HStack {
-                                            Text(bname)
-                                            if bname == appState.bucket {
-                                                Image(systemName: "checkmark")
+                        if !appState.isNextS3 {
+                            Menu {
+                                if !appState.availableBuckets.isEmpty {
+                                    ForEach(appState.availableBuckets, id: \.self) { bname in
+                                        Button(action: { appState.selectBucket(named: bname) }) {
+                                            HStack {
+                                                Text(bname)
+                                                if bname == appState.bucket {
+                                                    Image(systemName: "checkmark")
+                                                }
                                             }
                                         }
                                     }
+                                } else {
+                                    Text("Aucun bucket disponible")
                                 }
-                            } else {
-                                Text("Aucun bucket disponible")
+                            } label: {
+                                Label("Buckets", systemImage: "archivebox")
                             }
-                        } label: {
-                            Label("Buckets", systemImage: "archivebox")
                         }
 
                         Button(action: { showingHistory = true }) {
@@ -402,25 +404,27 @@ import UniformTypeIdentifiers
                     .padding(.horizontal, 40)
                 }
 
-                HStack(spacing: 15) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Label("Créer un bucket", systemImage: "plus.circle")
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    if !appState.availableBuckets.isEmpty {
-                        Menu {
-                            ForEach(appState.availableBuckets, id: \.self) { bname in
-                                Button(bname) {
-                                    appState.selectBucket(named: bname)
-                                }
-                            }
+                if !appState.isNextS3 {
+                    HStack(spacing: 15) {
+                        Button {
+                            showingSettings = true
                         } label: {
-                            Label("Choisir existant", systemImage: "list.bullet.indent")
+                            Label("Créer un bucket", systemImage: "plus.circle")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
+
+                        if !appState.availableBuckets.isEmpty {
+                            Menu {
+                                ForEach(appState.availableBuckets, id: \.self) { bname in
+                                    Button(bname) {
+                                        appState.selectBucket(named: bname)
+                                    }
+                                }
+                            } label: {
+                                Label("Choisir existant", systemImage: "list.bullet.indent")
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
                 }
             }

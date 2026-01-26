@@ -548,36 +548,39 @@
                         .foregroundColor(.secondary)
                 }
 
-                HStack(spacing: 20) {
-                    Button {
-                        openWindow(id: "create-bucket")
-                    } label: {
-                        Label("Créer un nouveau bucket", systemImage: "plus.circle")
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
-                    if !appState.availableBuckets.isEmpty {
-                        Menu {
-                            ForEach(appState.availableBuckets, id: \.self) { bname in
-                                Button(bname) {
-                                    appState.selectBucket(named: bname)
-                                }
-                            }
+                if !appState.isNextS3 {
+                    HStack(spacing: 20) {
+                        Button {
+                            openWindow(id: "create-bucket")
                         } label: {
-                            Label(
-                                "Sélectionner un bucket existant", systemImage: "list.bullet.indent"
-                            )
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
+                            Label("Créer un nouveau bucket", systemImage: "plus.circle")
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
                         .controlSize(.large)
+
+                        if !appState.availableBuckets.isEmpty {
+                            Menu {
+                                ForEach(appState.availableBuckets, id: \.self) { bname in
+                                    Button(bname) {
+                                        appState.selectBucket(named: bname)
+                                    }
+                                }
+                            } label: {
+                                Label(
+                                    "Sélectionner un bucket existant",
+                                    systemImage: "list.bullet.indent"
+                                )
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                        }
                     }
+                    .padding(.top, 10)
                 }
-                .padding(.top, 10)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(NSColor.windowBackgroundColor))

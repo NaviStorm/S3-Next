@@ -52,6 +52,10 @@ public final class S3AppState: ObservableObject {
     @Published var usePathStyle = true
     @Published var debugMessage: String = ""  // For debugging
 
+    var isNextS3: Bool {
+        endpoint.contains("s3.fr1.next.ink")
+    }
+
     // Smart Logging Helper
     func log(
         _ message: String, file: String = #file, function: String = #function, line: Int = #line
@@ -285,6 +289,10 @@ public final class S3AppState: ObservableObject {
     }
 
     func createBucket(name: String, objectLock: Bool, versioning: Bool, acl: String?) async {
+        if isNextS3 {
+            log("createBucket: Action restricted for Next S3.")
+            return
+        }
         log(
             "createBucket() called for: \(name) (Versioning: \(versioning), ObjectLock: \(objectLock), ACL: \(acl ?? "none"))"
         )
@@ -333,6 +341,10 @@ public final class S3AppState: ObservableObject {
 
     func deleteBucket() async {
         guard let client = client else { return }
+        if isNextS3 {
+            log("deleteBucket: Action restricted for Next S3.")
+            return
+        }
 
         log("deleteBucket() called for: \(self.bucket)")
         await MainActor.run {
