@@ -336,6 +336,34 @@
                                                 }
                                             }
                                         }
+
+                                        Divider()
+
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("Partage").font(.caption).foregroundColor(
+                                                .secondary)
+                                            HStack(spacing: 8) {
+                                                Button(action: {
+                                                    appState.copyPresignedURL(
+                                                        for: selected.key, expires: 3600)
+                                                }) {
+                                                    Label("1h", systemImage: "link")
+                                                        .frame(maxWidth: .infinity)
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+
+                                                Button(action: {
+                                                    appState.copyPresignedURL(
+                                                        for: selected.key, expires: 86400)
+                                                }) {
+                                                    Label("24h", systemImage: "link")
+                                                        .frame(maxWidth: .infinity)
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+                                            }
+                                        }
                                     } else {
                                         // Folder Stats
                                         if isStatsLoading {
