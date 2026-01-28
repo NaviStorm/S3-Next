@@ -1050,6 +1050,323 @@ public final class S3AppState: ObservableObject {
         }
     }
 
+    func copyUploadLink(for prefix: String, maxSizeMB: Int) {
+        guard let client = client else { return }
+        let maxSizeByte = Int64(maxSizeMB) * 1024 * 1024
+        do {
+            let (url, fields) = try client.generatePresignedPost(
+                keyPrefix: prefix,
+                expirationSeconds: 86400,  // 24h par défaut pour le dépôt
+                maxSize: maxSizeByte
+            )
+
+            // Création d'une commande CURL complète pour l'utilisateur
+            var curl = "curl -X POST \(url.absoluteString) \\\n"
+            // Les champs doivent être dans le bon ordre pour S3 (key en premier généralement, ou du moins avant le fichier)
+            let sortedKeys = fields.keys.sorted { a, b in
+                if a == "key" { return true }
+                if b == "key" { return false }
+                return a < b
+            }
+
+            for key in sortedKeys {
+                curl += "  -F \"\(key)=\(fields[key]!)\" \\\n"
+            }
+            curl += "  -F \"file=@NOM_DU_FICHIER\""
+
+            #if os(macOS)
+                let pasteboard = NSPasteboard.general
+                pasteboard.declareTypes([.string], owner: nil)
+                pasteboard.setString(curl, forType: .string)
+            #else
+                UIPasteboard.general.string = curl
+            #endif
+
+            showToast("Commande d'upload copiée (Limite \(maxSizeMB)Mo)", type: .success)
+            log("Upload command (POST) copied for prefix: \(prefix)")
+        } catch {
+            showToast("Erreur lien dépôt : \(error.localizedDescription)", type: .error)
+        }
+    }
+
+    private func generateUploadPageHTML(
+        bucket: String, endpoint: String, url: URL, fields: [String: String], prefix: String,
+        maxSizeMB: Int
+    ) -> String {
+        let fieldsJS = fields.map { "\"\($0.key)\": \"\($0.value)\"" }.joined(
+            separator: ",\n            ")
+
+        // URL de base pour l'affichage (sans le slash final si présent)
+        let displayEndpoint = endpoint.replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+
+        return """
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Dépôt de fichiers - \(bucket)</title>
+                <style>
+                    :root {
+                        --primary: #007AFF;
+                        --bg: #0F172A;
+                        --card: rgba(30, 41, 59, 0.7);
+                        --text: #F8FAFC;
+                    }
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        background: radial-gradient(circle at top left, #1E293B, #0F172A);
+                        color: var(--text);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        min-height: 100vh;
+                        margin: 0;
+                    }
+                    .container {
+                        background: var(--card);
+                        backdrop-filter: blur(12px);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        padding: 2rem;
+                        border-radius: 24px;
+                        width: 100%;
+                        max-width: 450px;
+                        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+                        text-align: center;
+                    }
+                    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+                    p { color: #94A3B8; font-size: 0.9rem; margin-bottom: 2rem; }
+                    .drop-zone {
+                        border: 2px dashed rgba(255,255,255,0.2);
+                        border-radius: 16px;
+                        padding: 3rem 1rem;
+                        cursor: pointer;
+                        transition: all 0.3s;
+                        position: relative;
+                    }
+                    .drop-zone:hover, .drop-zone.dragover {
+                        border-color: var(--primary);
+                        background: rgba(0, 122, 255, 0.05);
+                    }
+                    #file-input { display: none; }
+                    .btn {
+                        background: var(--primary);
+                        color: white;
+                        border: none;
+                        padding: 0.8rem 1.5rem;
+                        border-radius: 12px;
+                        font-weight: 600;
+                        margin-top: 1rem;
+                        cursor: pointer;
+                        width: 100%;
+                        transition: opacity 0.2s;
+                    }
+                    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+                    .progress-container {
+                        margin-top: 1.5rem;
+                        display: none;
+                    }
+                    .progress-bar {
+                        height: 6px;
+                        background: rgba(255,255,255,0.1);
+                        border-radius: 3px;
+                        overflow: hidden;
+                    }
+                    .progress-fill {
+                        height: 100%;
+                        background: var(--primary);
+                        width: 0%;
+                        transition: width 0.1s;
+                    }
+                    .status { margin-top: 0.5rem; font-size: 0.8rem; color: #94A3B8; }
+                    .success-icon { color: #10B981; font-size: 3rem; display: none; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div id="upload-ui">
+                        <h1>Dépôt S3 Vue</h1>
+                        <p>Déposez vers : <strong>\(prefix)</strong><br>Limite : \(maxSizeMB) Mo</p>
+                        
+                        <div class="drop-zone" id="drop-zone">
+                            <div id="drop-text">
+                                <strong>Cliquez ou glissez un fichier</strong><br>
+                                <span style="font-size: 0.8rem">votre fichier sera envoyé directement</span>
+                            </div>
+                            <input type="file" id="file-input">
+                        </div>
+
+                        <div class="progress-container" id="progress-container">
+                            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                            <div class="status" id="status">Préparation...</div>
+                        </div>
+                    </div>
+
+                    <div id="success-ui" style="display:none">
+                        <div class="success-icon">✓</div>
+                        <h2>Transfert réussi !</h2>
+                        <p>Votre fichier a été déposé avec succès dans le bucket.</p>
+                        <button class="btn" onclick="location.reload()">Envoyer un autre fichier</button>
+                    </div>
+                </div>
+
+                <script>
+                    const dropZone = document.getElementById('drop-zone');
+                    const fileInput = document.getElementById('file-input');
+                    const progressContainer = document.getElementById('progress-container');
+                    const progressFill = document.getElementById('progress-fill');
+                    const status = document.getElementById('status');
+                    const uploadUi = document.getElementById('upload-ui');
+                    const successUi = document.getElementById('success-ui');
+
+                    const S3_URL = "\(url.absoluteString)";
+                    const FIELDS = {
+                        \(fieldsJS)
+                    };
+
+                    dropZone.onclick = () => fileInput.click();
+
+                    dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
+                    dropZone.ondragleave = () => dropZone.classList.remove('dragover');
+                    dropZone.ondrop = (e) => {
+                        e.preventDefault();
+                        dropZone.classList.remove('dragover');
+                        if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files[0]);
+                    };
+
+                    fileInput.onchange = () => {
+                        if (fileInput.files.length) handleUpload(fileInput.files[0]);
+                    };
+
+                    function handleUpload(file) {
+                        if (file.size > \(maxSizeMB) * 1024 * 1024) {
+                            alert("Le fichier est trop volumineux (max \(maxSizeMB) Mo)");
+                            return;
+                        }
+
+                        dropZone.style.display = 'none';
+                        progressContainer.style.display = 'block';
+                        status.innerText = "Téléversement de " + file.name + "...";
+
+                        const formData = new FormData();
+                        console.log("POST to:", S3_URL);
+                        for (const [key, value] of Object.entries(FIELDS)) {
+                            formData.append(key, value);
+                        }
+                        formData.append('file', file);
+
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', S3_URL, true);
+
+                        xhr.upload.onprogress = (e) => {
+                            if (e.lengthComputable) {
+                                const percent = (e.loaded / e.total) * 100;
+                                progressFill.style.width = percent + '%';
+                                status.innerText = "Envoi : " + Math.round(percent) + "%";
+                            }
+                        };
+
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                                uploadUi.style.display = 'none';
+                                successUi.style.display = 'block';
+                                successUi.querySelector('.success-icon').style.display = 'block';
+                            } else {
+                                console.error("S3 Error:", xhr.status, xhr.responseText);
+                                alert("Erreur lors de l'envoi vers " + S3_URL + " : " + xhr.responseText);
+                                location.reload();
+                            }
+                        };
+
+                        xhr.onerror = () => {
+                            alert("Erreur réseau");
+                            location.reload();
+                        };
+
+                        xhr.send(formData);
+                    }
+                </script>
+            </body>
+            </html>
+            """
+    }
+
+    func createPublicUploadPage(for prefix: String, maxSizeMB: Int) {
+        guard let client = client else { return }
+        let maxSizeByte = Int64(maxSizeMB) * 1024 * 1024
+
+        // Détection de la région Next.ink si nécessaire
+        let effectiveRegion = isNextS3 ? "southwest1" : region
+        log("[UploadPage] Using effective region: \(effectiveRegion)")
+
+        Task {
+            do {
+                // 1. Générer les informations de Presigned POST avec ACL
+                // On inclut l'ACL dans la politique pour que le client puisse l'envoyer
+                let (url, fields) = try client.generatePresignedPost(
+                    keyPrefix: prefix,
+                    expirationSeconds: 86400,  // 24h
+                    maxSize: maxSizeByte,
+                    acl: "public-read"
+                )
+
+                // 2. Générer le HTML
+                let html = generateUploadPageHTML(
+                    bucket: self.bucket,
+                    endpoint: self.endpoint,
+                    url: url,
+                    fields: fields,
+                    prefix: prefix,
+                    maxSizeMB: maxSizeMB
+                )
+
+                // 3. Uploader le fichier HTML sur S3
+                let pageId = UUID().uuidString.prefix(8).lowercased()
+                let pageKey = "_depots/depot_\(pageId).html"
+
+                do {
+                    try await client.putObject(
+                        key: pageKey,
+                        data: html.data(using: .utf8),
+                        contentType: "text/html",
+                        acl: "public-read"
+                    )
+                } catch {
+                    // Si l'ACL public-read échoue, on tente sans ACL (certains buckets l'interdisent)
+                    log("[UploadPage] ACL public-read failed, trying without ACL...")
+                    try await client.putObject(
+                        key: pageKey,
+                        data: html.data(using: .utf8),
+                        contentType: "text/html"
+                    )
+                }
+
+                // 4. Obtenir l'URL finale via le client
+                let publicURL = try client.generateDownloadURL(key: pageKey).absoluteString
+                log("[UploadPage] Generated URL: \(publicURL)")
+
+                await MainActor.run {
+                    #if os(macOS)
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.declareTypes([.string], owner: nil)
+                        pasteboard.setString(publicURL, forType: .string)
+                    #else
+                        UIPasteboard.general.string = publicURL
+                    #endif
+
+                    showToast("Page de dépôt créée & URL copiée !", type: .success)
+                    log("Public upload page created at: \(publicURL)")
+                }
+            } catch {
+                await MainActor.run {
+                    showToast("Erreur création page : \(error.localizedDescription)", type: .error)
+                    log("[UploadPage] ERROR: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     // MARK: - Snapshots Logic
 
     func loadSavedSnapshots() {

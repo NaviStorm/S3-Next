@@ -24,6 +24,8 @@
 
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
+        @State private var showingUploadLink = false
+        @State private var maxUploadSize = "100"
         @State private var showingTimeMachine = false
         @State private var showingSecurity = false
         @State private var showingLifecycle = false
@@ -370,10 +372,30 @@
                                             ProgressView("Calcul des stats...").controlSize(.small)
                                         } else if let stats = folderStats {
                                             DetailItem(
-                                                label: "Contenu", value: "\(stats.count) objets")
-                                            DetailItem(
                                                 label: "Taille totale",
                                                 value: formatBytes(stats.size))
+
+                                            Divider()
+
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text("Lien de Dépôt").font(.caption)
+                                                    .foregroundColor(
+                                                        .secondary)
+                                                Button(action: { showingUploadLink = true }) {
+                                                    Label(
+                                                        "Générer un lien de dépôt",
+                                                        systemImage: "tray.and.arrow.up.fill"
+                                                    )
+                                                    .frame(maxWidth: .infinity)
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+                                                Text(
+                                                    "Permet à d'autres de déposer des fichiers dans ce dossier."
+                                                )
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.secondary)
+                                            }
                                         }
                                     }
                                 }
@@ -435,6 +457,24 @@
                     }
                 }
                 Button("Annuler", role: .cancel) { renameItemName = "" }
+            }
+            .alert("Lien de Dépôt", isPresented: $showingUploadLink) {
+                TextField("Taille max autorisée (Mo)", text: $maxUploadSize)
+                Button("Créer la Page Web de dépôt") {
+                    if let size = Int(maxUploadSize), let selected = selectedObject {
+                        appState.createPublicUploadPage(for: selected.key, maxSizeMB: size)
+                    }
+                }
+                Button("Copier commande CURL") {
+                    if let size = Int(maxUploadSize), let selected = selectedObject {
+                        appState.copyUploadLink(for: selected.key, maxSizeMB: size)
+                    }
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text(
+                    "Choisissez comment générer le lien de dépôt (valide 24h). La page web est l'option la plus simple pour vos contacts."
+                )
             }
             .alert("Suppression", isPresented: $showingDelete) {
                 Button("Supprimer", role: .destructive) {
