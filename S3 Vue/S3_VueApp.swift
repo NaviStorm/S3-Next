@@ -64,6 +64,12 @@ struct S3_VueApp: App {
                 }
             }
             .windowResizability(.contentSize)
+
+            Window("Création de bucket", id: "create-bucket") {
+                CreateBucketView()
+                    .environmentObject(appState)
+            }
+            .windowResizability(.contentSize)
         #endif
     }
 }

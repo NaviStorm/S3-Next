@@ -16,21 +16,38 @@ class S3Client {
     ) {
         self.accessKey = accessKey
         self.secretKey = secretKey
-        self.region = region
+
+        // Auto-fix pour Next.ink
+        if endpoint.contains("next.ink") {
+            // Test de la région fr1 si southwest1 échoue pour l'utilisateur
+            if region == "us-east-1" || region.isEmpty || region == "fr1" {  // Added || region == "fr1"
+                self.region = "southwest1"
+                print("[S3Client] Next.ink detected: Using region 'southwest1'")
+            } else {
+                self.region = region
+            }
+        } else {
+            self.region = region
+        }
+
         self.bucket = bucket
         self.endpoint = endpoint
         self.usePathStyle = usePathStyle
+
+        print(
+            "[S3Client] Initialized: Bucket=\(bucket), Region=\(self.region), Endpoint=\(endpoint), PathStyle=\(usePathStyle)"
+        )
     }
 
     private func awsEncode(_ string: String, encodeSlash: Bool = true) -> String {
-        let nfcString = string.precomposedStringWithCanonicalMapping
-        // S3 V4 requires strict encoding: A-Z, a-z, 0-9, hyphen (-), underscore (_), period (.), and tilde (~)
+        // Strict set of allowed characters for S3 V4
         let allowed = CharacterSet(
             charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         var finalAllowed = allowed
         if !encodeSlash { finalAllowed.insert(charactersIn: "/") }
 
-        return nfcString.addingPercentEncoding(withAllowedCharacters: finalAllowed) ?? nfcString
+        // addingPercentEncoding correctly handles all characters not in finalAllowed, including '%'
+        return string.addingPercentEncoding(withAllowedCharacters: finalAllowed) ?? string
     }
 
     // MARK: - Public API
@@ -134,28 +151,13 @@ class S3Client {
         let datestamp = dateFormatter.string(from: date)
 
         let encodedKey = awsEncode(key, encodeSlash: false)
-        var host: String
-        var canonicalUri: String
+        let (components, host) = try buildComponents(key: key)
+        let canonicalUri = components.path
 
-        if !endpoint.isEmpty {
-            let base = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
-            guard let url = URL(string: base), let baseHost = url.host else {
-                throw S3Error.invalidUrl
-            }
-            if usePathStyle {
-                host = baseHost
-                canonicalUri = "/\(bucket)/\(encodedKey)"
-            } else {
-                host = "\(bucket).\(baseHost)"
-                canonicalUri = "/\(encodedKey)"
-            }
-        } else {
-            host = "\(bucket).s3.\(region).amazonaws.com"
-            canonicalUri = "/\(encodedKey)"
-        }
-
-        if !canonicalUri.hasPrefix("/") { canonicalUri = "/" + canonicalUri }
-        canonicalUri = canonicalUri.replacingOccurrences(of: "//", with: "/")
+        // Nettoyage final du URI pour la signature
+        var safeUri = canonicalUri
+        if !safeUri.hasPrefix("/") { safeUri = "/" + safeUri }
+        safeUri = safeUri.replacingOccurrences(of: "//", with: "/")
 
         let credentialScope = "\(datestamp)/\(region)/s3/aws4_request"
         let queryItems = [
@@ -187,58 +189,242 @@ class S3Client {
         let signature = hmac(key: kSigning, data: stringToSign).map { String(format: "%02x", $0) }
             .joined()
 
-        var components = URLComponents()
+        var componentsForUrl = components
         if !endpoint.isEmpty {
             let base = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
             if let baseUri = URL(string: base) {
-                components.scheme = baseUri.scheme
-                components.host = host
-                components.port = baseUri.port
+                componentsForUrl.scheme = baseUri.scheme
+                componentsForUrl.port = baseUri.port
             }
         } else {
-            components.scheme = "https"
-            components.host = host
+            componentsForUrl.scheme = "https"
         }
 
-        components.path = canonicalUri
         var finalQueryItems = queryItems
         finalQueryItems.append(URLQueryItem(name: "X-Amz-Signature", value: signature))
-        components.queryItems = finalQueryItems
+        componentsForUrl.queryItems = finalQueryItems
 
-        guard let finalUrl = components.url else { throw S3Error.invalidUrl }
+        guard let finalUrl = componentsForUrl.url else { throw S3Error.invalidUrl }
         return finalUrl
     }
 
+    func generatePresignedPost(
+        keyPrefix: String, expirationSeconds: Int, maxSize: Int64, acl: String? = nil
+    ) throws
+        -> (url: URL, fields: [String: String])
+    {
+        let date = Date()
+        let dateFormatterShort = DateFormatter()
+        dateFormatterShort.timeZone = TimeZone(secondsFromGMT: 0)
+        dateFormatterShort.dateFormat = "yyyyMMdd"
+        let datestamp = dateFormatterShort.string(from: date)
+
+        dateFormatterShort.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        let amzDate = dateFormatterShort.string(from: date)
+
+        // Expiration date in ISO8601
+        let expirationDate = date.addingTimeInterval(TimeInterval(expirationSeconds))
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        let expirationStr = isoFormatter.string(from: expirationDate)
+
+        let credentialScope = "\(datestamp)/\(region)/s3/aws4_request"
+        let credential = "\(accessKey)/\(credentialScope)"
+
+        // Construct conditions
+        var conditions: [Any] = [
+            ["bucket": bucket],
+            ["starts-with", "$key", keyPrefix],
+            ["content-length-range", 0, maxSize],
+            ["x-amz-algorithm": "AWS4-HMAC-SHA256"],
+            ["x-amz-credential": credential],
+            ["x-amz-date": amzDate],
+        ]
+
+        if let acl = acl {
+            conditions.append(["acl": acl])
+        }
+
+        // Construct policy JSON
+        let policy: [String: Any] = [
+            "expiration": expirationStr,
+            "conditions": conditions,
+        ]
+
+        let policyData = try JSONSerialization.data(withJSONObject: policy)
+        let policyBase64 = policyData.base64EncodedString()
+
+        // Sign the policy
+        let kDate = hmac(key: "AWS4\(secretKey)".data(using: .utf8)!, data: datestamp)
+        let kRegion = hmac(key: kDate, data: region)
+        let kService = hmac(key: kRegion, data: "s3")
+        let kSigning = hmac(key: kService, data: "aws4_request")
+        let signatureData = hmac(key: kSigning, data: policyBase64)
+        let signature = signatureData.map { String(format: "%02x", $0) }.joined()
+
+        var fields: [String: String] = [
+            "key": keyPrefix + "${filename}",
+            "x-amz-algorithm": "AWS4-HMAC-SHA256",
+            "x-amz-credential": credential,
+            "x-amz-date": amzDate,
+            "policy": policyBase64,
+            "x-amz-signature": signature,
+        ]
+
+        if let acl = acl {
+            fields["acl"] = acl
+        }
+
+        let (postComponents, _) = try buildComponents(key: "")
+        guard let url = postComponents.url else { throw S3Error.invalidUrl }
+
+        print("[S3] generatePresignedPost - Region: \(region)")
+        print("[S3] generatePresignedPost - Host: \(postComponents.host ?? "nil")")
+        print("[S3] generatePresignedPost - URL: \(url.absoluteString)")
+
+        return (url, fields)
+    }
+
     func generateDownloadURL(key: String, versionId: String? = nil) throws -> URL {
-        let encodedKey = awsEncode(key, encodeSlash: false)
-        var urlString: String
-        if !endpoint.isEmpty {
-            var baseUrl = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
-            if baseUrl.hasSuffix("/") { baseUrl = String(baseUrl.dropLast()) }
-            if usePathStyle {
-                urlString = "\(baseUrl)/\(bucket)/\(encodedKey)"
-            } else {
-                if let schemeRange = baseUrl.range(of: "://") {
-                    let scheme = baseUrl[..<schemeRange.upperBound]
-                    let host = baseUrl[schemeRange.upperBound...]
-                    urlString = "\(scheme)\(bucket).\(host)/\(encodedKey)"
-                } else {
-                    urlString = "https://\(bucket).\(endpoint)/\(encodedKey)"
-                }
-            }
-        } else {
-            let host = "\(bucket).s3.\(region).amazonaws.com"
-            urlString = "https://\(host)/\(encodedKey)"
-        }
+        var (components, _) = try buildComponents(key: key)
+
         if let vId = versionId {
-            urlString += (urlString.contains("?") ? "&" : "?") + "versionId=\(vId)"
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "versionId", value: vId))
+            components.queryItems = items
         }
-        guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
+
+        guard let url = components.url else { throw S3Error.invalidUrl }
         return url
     }
 
-    func deleteObject(key: String) async throws {
-        let url = try generateDownloadURL(key: key)
+    private func buildComponents(key: String) throws -> (components: URLComponents, host: String) {
+        let encodedKey = awsEncode(key, encodeSlash: false)
+        let baseUrlStr = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+        guard let baseUrl = URL(string: baseUrlStr) else {
+            throw S3Error.invalidUrl
+        }
+
+        let baseHost = baseUrl.host ?? ""
+        var components = URLComponents()
+        components.scheme = baseUrl.scheme ?? "https"
+        components.port = baseUrl.port
+
+        let actualHost: String
+        let actualPath: String
+
+        let isNextInk = endpoint.contains("next.ink")
+
+        if bucket.isEmpty {
+            actualHost = baseHost
+            actualPath = "/"
+        } else if usePathStyle || isNextInk {
+            // Path Style (obligatoire pour Next.ink car le Virtual Host renvoie NoSuchBucket)
+            actualHost = baseHost
+            // Important: pour le POST (key vide), le slash final /bucket/ est souvent obligatoire
+            actualPath = encodedKey.isEmpty ? "/\(bucket)/" : "/\(bucket)/\(encodedKey)"
+
+            if isNextInk {
+                print("[S3-DEBUG] Next.ink: Forced Path-Style Mode: \(actualHost)\(actualPath)")
+            }
+        } else {
+            // Virtual Host Style
+            if baseHost.isEmpty {
+                actualHost = "\(bucket).s3.\(region).amazonaws.com"
+            } else {
+                actualHost = "\(bucket).\(baseHost)"
+            }
+            actualPath = encodedKey.isEmpty ? "/" : "/\(encodedKey)"
+        }
+
+        components.host = actualHost
+        // Utiliser percentEncodedPath pour éviter que URLComponents ne ré-encode nos pourcentages (%)
+        let cleanPath = actualPath.replacingOccurrences(of: "//", with: "/")
+        components.percentEncodedPath = cleanPath
+
+        return (components, actualHost)
+    }
+
+    func listBuckets() async throws -> [String] {
+        var urlString: String
+        if !endpoint.isEmpty {
+            urlString = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
+            if urlString.hasSuffix("/") { urlString = String(urlString.dropLast()) }
+        } else {
+            urlString = "https://s3.\(region).amazonaws.com"
+        }
+
+        guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw S3Error.apiError(httpResponse.statusCode, "ListBuckets Failed: \(body)")
+        }
+
+        return S3BucketParser().parse(data: data)
+    }
+
+    func createBucket(objectLockEnabled: Bool = false, acl: String? = nil) async throws {
+        let url = try generateDownloadURL(key: "")
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+
+        var bodyData = Data()
+        if region != "us-east-1" && !endpoint.isEmpty && endpoint.contains("amazonaws.com") {
+            // AWS S3 standard region doesn't and often errors if provided.
+            // But non-us-east-1 standard AWS might need LocationConstraint.
+            let xml = """
+                <CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+                   <LocationConstraint>\(region)</LocationConstraint>
+                </CreateBucketConfiguration>
+                """
+            bodyData = xml.data(using: .utf8)!
+        }
+
+        if objectLockEnabled {
+            request.setValue("true", forHTTPHeaderField: "x-amz-bucket-object-lock-enabled")
+        }
+        if let aclValue = acl {
+            request.setValue(aclValue, forHTTPHeaderField: "x-amz-acl")
+        }
+
+        try signRequest(request: &request, payload: bodyData)
+        request.httpBody = bodyData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw S3Error.apiError(httpResponse.statusCode, "CreateBucket Failed: \(body)")
+        }
+    }
+
+    func deleteBucket() async throws {
+        let url = try generateDownloadURL(key: "")
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw S3Error.apiError(httpResponse.statusCode, "DeleteBucket Failed: \(body)")
+        }
+    }
+
+    func deleteObject(key: String, versionId: String? = nil) async throws {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         try signRequest(request: &request, payload: "")
@@ -246,7 +432,8 @@ class S3Client {
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
-            throw S3Error.apiError(httpResponse.statusCode, "Delete Failed: \(body)")
+            let versionInfo = versionId != nil ? " (Version: \(versionId!))" : ""
+            throw S3Error.apiError(httpResponse.statusCode, "Delete Failed\(versionInfo): \(body)")
         }
     }
 
@@ -373,7 +560,10 @@ class S3Client {
         return allObjects
     }
 
-    func putObject(key: String, data: Data?, metadata: [String: String] = [:]) async throws {
+    func putObject(
+        key: String, data: Data?, metadata: [String: String] = [:], contentType: String? = nil,
+        acl: String? = nil
+    ) async throws {
         let url = try generateDownloadURL(key: key)
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
@@ -381,6 +571,16 @@ class S3Client {
         // Add custom metadata
         for (mKey, mValue) in metadata {
             request.setValue(mValue, forHTTPHeaderField: "x-amz-meta-\(mKey)")
+        }
+
+        // Add content type if specified
+        if let contentType = contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+
+        // Add ACL if specified
+        if let acl = acl {
+            request.setValue(acl, forHTTPHeaderField: "x-amz-acl")
         }
 
         let bodyData = data ?? Data()
@@ -447,7 +647,9 @@ class S3Client {
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
 
         if !(200...299).contains(httpResponse.statusCode) {
-            throw S3Error.apiError(httpResponse.statusCode, "UploadPart Failed")
+            let attemptedURL = request.url?.absoluteString ?? "Unknown URL"
+            throw S3Error.apiError(
+                httpResponse.statusCode, "UploadPart Failed for URL: \(attemptedURL)")
         }
 
         guard
@@ -830,11 +1032,13 @@ class S3Client {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         let safeSourceKey = sourceKey.first == "/" ? String(sourceKey.dropFirst()) : sourceKey
-        // x-amz-copy-source must be URL encoded, but the slash between bucket and key must be literal.
-        // We encode the key part fully (including slashes).
+        // x-amz-copy-source must be URL encoded. Standard S3: /bucket/key_fully_encoded
         let encodedKeyPart = awsEncode(safeSourceKey, encodeSlash: true)
-        let headerValue = "\(bucket)/\(encodedKeyPart)"
+        let headerValue = "/\(bucket)/\(encodedKeyPart)"
         request.setValue(headerValue, forHTTPHeaderField: "x-amz-copy-source")
+
+        print("[S3] Copying from: \(headerValue) to: \(destinationKey)")
+
         try signRequest(request: &request, payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -928,6 +1132,8 @@ class S3Client {
 
         let canonicalRequest =
             "\(method)\n\(safeCanonicalUri)\n\(canonicalQueryString)\n\(canonicalHeaders)\n\(signedHeaders)\n\(payloadHash)"
+
+        print("[S3] Canonical Request:\n\(canonicalRequest)")
 
         let credentialScope = "\(datestamp)/\(region)/s3/aws4_request"
         let stringToSign =

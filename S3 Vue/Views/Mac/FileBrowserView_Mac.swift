@@ -24,6 +24,8 @@
 
         @State private var folderStats: (count: Int, size: Int64)? = nil
         @State private var isStatsLoading = false
+        @State private var showingUploadLink = false
+        @State private var maxUploadSize = "100"
         @State private var showingTimeMachine = false
         @State private var showingSecurity = false
         @State private var showingLifecycle = false
@@ -143,6 +145,8 @@
                             Spacer()
                             ProgressView("Chargement...")
                             Spacer()
+                        } else if appState.bucket.isEmpty {
+                            noBucketView
                         } else {
                             Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
@@ -334,16 +338,64 @@
                                                 }
                                             }
                                         }
+
+                                        Divider()
+
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("Partage").font(.caption).foregroundColor(
+                                                .secondary)
+                                            HStack(spacing: 8) {
+                                                Button(action: {
+                                                    appState.copyPresignedURL(
+                                                        for: selected.key, expires: 3600)
+                                                }) {
+                                                    Label("1h", systemImage: "link")
+                                                        .frame(maxWidth: .infinity)
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+
+                                                Button(action: {
+                                                    appState.copyPresignedURL(
+                                                        for: selected.key, expires: 86400)
+                                                }) {
+                                                    Label("24h", systemImage: "link")
+                                                        .frame(maxWidth: .infinity)
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+                                            }
+                                        }
                                     } else {
                                         // Folder Stats
                                         if isStatsLoading {
                                             ProgressView("Calcul des stats...").controlSize(.small)
                                         } else if let stats = folderStats {
                                             DetailItem(
-                                                label: "Contenu", value: "\(stats.count) objets")
-                                            DetailItem(
                                                 label: "Taille totale",
                                                 value: formatBytes(stats.size))
+
+                                            Divider()
+
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text("Lien de Dépôt").font(.caption)
+                                                    .foregroundColor(
+                                                        .secondary)
+                                                Button(action: { showingUploadLink = true }) {
+                                                    Label(
+                                                        "Générer un lien de dépôt",
+                                                        systemImage: "tray.and.arrow.up.fill"
+                                                    )
+                                                    .frame(maxWidth: .infinity)
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+                                                Text(
+                                                    "Permet à d'autres de déposer des fichiers dans ce dossier."
+                                                )
+                                                .font(.system(size: 9))
+                                                .foregroundColor(.secondary)
+                                            }
                                         }
                                     }
                                 }
@@ -405,6 +457,24 @@
                     }
                 }
                 Button("Annuler", role: .cancel) { renameItemName = "" }
+            }
+            .alert("Lien de Dépôt", isPresented: $showingUploadLink) {
+                TextField("Taille max autorisée (Mo)", text: $maxUploadSize)
+                Button("Créer la Page Web de dépôt") {
+                    if let size = Int(maxUploadSize), let selected = selectedObject {
+                        appState.createPublicUploadPage(for: selected.key, maxSizeMB: size)
+                    }
+                }
+                Button("Copier commande CURL") {
+                    if let size = Int(maxUploadSize), let selected = selectedObject {
+                        appState.copyUploadLink(for: selected.key, maxSizeMB: size)
+                    }
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text(
+                    "Choisissez comment générer le lien de dépôt (valide 24h). La page web est l'option la plus simple pour vos contacts."
+                )
             }
             .alert("Suppression", isPresented: $showingDelete) {
                 Button("Supprimer", role: .destructive) {
@@ -524,6 +594,64 @@
                 if let validDesc = desc { return validDesc }
             } catch {}
             return UTType(filenameExtension: ext)?.localizedDescription ?? ext.uppercased()
+        }
+
+        private var noBucketView: some View {
+            VStack(spacing: 30) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 80))
+                    .foregroundColor(.blue)
+
+                VStack(spacing: 15) {
+                    Text("Bienvenue sur S3 Next")
+                        .font(.title)
+                        .fontWeight(.bold)
+
+                    Text("Connecté au service, mais aucun bucket n'a été sélectionné.")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+
+                    Text("Utilisez les options ci-dessous pour commencer.")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+
+                if !appState.isNextS3 {
+                    HStack(spacing: 20) {
+                        Button {
+                            openWindow(id: "create-bucket")
+                        } label: {
+                            Label("Créer un nouveau bucket", systemImage: "plus.circle")
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+
+                        if !appState.availableBuckets.isEmpty {
+                            Menu {
+                                ForEach(appState.availableBuckets, id: \.self) { bname in
+                                    Button(bname) {
+                                        appState.selectBucket(named: bname)
+                                    }
+                                }
+                            } label: {
+                                Label(
+                                    "Sélectionner un bucket existant",
+                                    systemImage: "list.bullet.indent"
+                                )
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                        }
+                    }
+                    .padding(.top, 10)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
         }
     }
 

@@ -8,17 +8,44 @@ struct SettingsView: View {
     @State private var showingAddKeyAlert = false
     @State private var showingImportKeyAlert = false
     @State private var showingAbout = false
+    @State private var showingCreateBucketSheet = false
     @State private var newKeyAlias = ""
     @State private var importKeyAlias = ""
     @State private var importKeyBase64 = ""
+    @State private var showingDeleteBucketAlert = false
+    @State private var showingForceDeleteAlert = false
 
     var body: some View {
         Form {
-            Section("Configuration du Bucket") {
+            Section {
                 LabeledContent("Nom du Bucket", value: appState.bucket)
                 LabeledContent("Région", value: appState.region)
-                LabeledContent("Endpoint", value: appState.endpoint)
+                if !appState.isNextS3 {
+                    Button {
+                        #if os(macOS)
+                            openWindow(id: "create-bucket")
+                        #else
+                            showingCreateBucketSheet = true
+                        #endif
+                    } label: {
+                        Label("Créer un nouveau bucket", systemImage: "plus.circle")
+                    }
+                    #if os(iOS)
+                        .sheet(isPresented: $showingCreateBucketSheet) {
+                            CreateBucketView()
+                            .environmentObject(appState)
+                        }
+                    #endif
+                }
+            } header: {
+                Text("Configuration du Bucket")
+            } footer: {
+                if !appState.isLoggedIn {
+                    Text("Connectez-vous pour créer un nouveau bucket.")
+                        .foregroundColor(.orange)
+                }
             }
+            .disabled(!appState.isLoggedIn)
 
             Section {
                 HStack {
@@ -56,10 +83,16 @@ struct SettingsView: View {
             } header: {
                 Text("Bucket")
             } footer: {
-                Text(
-                    "L'activation du versioning vous permet de préserver, récupérer et restaurer chaque version de chaque objet stocké dans votre bucket."
-                )
+                if !appState.isLoggedIn {
+                    Text("Connectez-vous pour gérer le versioning.")
+                        .foregroundColor(.orange)
+                } else {
+                    Text(
+                        "L'activation du versioning vous permet de préserver, récupérer et restaurer chaque version de chaque objet stocké dans votre bucket."
+                    )
+                }
             }
+            .disabled(!appState.isLoggedIn)
 
             Section("Chiffrement Client-Side (CSE)") {
                 if appState.encryptionAliases.isEmpty {
@@ -145,14 +178,22 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Maintenance") {
+            Section {
                 NavigationLink {
                     MultipartCleanupView()
                         .environmentObject(appState)
                 } label: {
                     Label("Nettoyer les transferts abandonnés", systemImage: "trash.badge.plus")
                 }
+            } header: {
+                Text("Maintenance")
+            } footer: {
+                if !appState.isLoggedIn {
+                    Text("Connectez-vous pour accéder aux outils de maintenance.")
+                        .foregroundColor(.orange)
+                }
             }
+            .disabled(!appState.isLoggedIn)
 
             Section("À propos") {
                 NavigationLink("Mentions Légales") {
@@ -197,6 +238,50 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 8)
                 .listRowBackground(Color.clear)
+            }
+
+            if appState.isLoggedIn && !appState.isNextS3 {
+                Section {
+                    Button(role: .destructive) {
+                        showingDeleteBucketAlert = true
+                    } label: {
+                        Label("Supprimer le bucket définitivement", systemImage: "trash.fill")
+                    }
+                    .alert("Supprimer le bucket ?", isPresented: $showingDeleteBucketAlert) {
+                        Button("Supprimer", role: .destructive) {
+                            Task {
+                                await appState.deleteBucket()
+                            }
+                        }
+                        Button("Nettoyage forcé...", role: .none) {
+                            showingForceDeleteAlert = true
+                        }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text(
+                            "Cette action est irréversible. Le bucket '\(appState.bucket)' doit être VIDE.\n\nSi vous avez des versions cachées ou des transferts interrompus, utilisez le 'Nettoyage forcé'."
+                        )
+                    }
+                    .alert("Nettoyage et suppression ?", isPresented: $showingForceDeleteAlert) {
+                        Button("Tout vider et supprimer", role: .destructive) {
+                            Task {
+                                await appState.emptyAndDeleteBucket()
+                            }
+                        }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text(
+                            "ATTENTION : Cette opération va supprimer DÉFINITIVEMENT tous les objets, toutes les versions et tous les transferts en cours avant de supprimer le bucket '\(appState.bucket)'."
+                        )
+                    }
+                } header: {
+                    Text("Zone de Danger")
+                } footer: {
+                    Text(
+                        "Attention : La suppression d'un bucket est une opération critique. Assurez-vous d'avoir sauvegardé vos données importantes."
+                    )
+                    .foregroundColor(.red)
+                }
             }
         }
         .formStyle(.grouped)

@@ -219,24 +219,66 @@
                                     }
 
                                     RibbonGroup(label: "Configuration") {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack {
-                                                Image(systemName: "archivebox.fill")
-                                                    .foregroundColor(
-                                                        .secondary)
-                                                Text(appState.bucket).fontWeight(.bold)
-                                            }
-                                            .font(.system(size: 11))
+                                        if appState.isNextS3 {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                HStack {
+                                                    Image(systemName: "archivebox.fill")
+                                                        .foregroundColor(.blue)
+                                                    Text(appState.bucket).fontWeight(.bold)
+                                                }
+                                                .font(.system(size: 11))
 
-                                            HStack {
-                                                Image(systemName: "globe.europe.africa.fill")
-                                                    .foregroundColor(.secondary)
-                                                Text(appState.region)
+                                                HStack {
+                                                    Image(systemName: "globe.europe.africa.fill")
+                                                        .foregroundColor(.secondary)
+                                                    Text(appState.region)
+                                                }
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.secondary)
                                             }
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.secondary)
+                                            .padding(.horizontal, 4)
+                                        } else {
+                                            Menu {
+                                                if !appState.availableBuckets.isEmpty {
+                                                    ForEach(appState.availableBuckets, id: \.self) {
+                                                        bname in
+                                                        Button(action: {
+                                                            appState.selectBucket(named: bname)
+                                                        }) {
+                                                            HStack {
+                                                                Text(bname)
+                                                                if bname == appState.bucket {
+                                                                    Image(systemName: "checkmark")
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    Text("Aucun bucket disponible")
+                                                }
+                                            } label: {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    HStack {
+                                                        Image(systemName: "archivebox.fill")
+                                                            .foregroundColor(.blue)
+                                                        Text(appState.bucket).fontWeight(.bold)
+                                                    }
+                                                    .font(.system(size: 11))
+
+                                                    HStack {
+                                                        Image(
+                                                            systemName: "globe.europe.africa.fill"
+                                                        )
+                                                        .foregroundColor(.secondary)
+                                                        Text(appState.region)
+                                                    }
+                                                    .font(.system(size: 10))
+                                                    .foregroundColor(.secondary)
+                                                }
+                                                .padding(.horizontal, 4)
+                                            }
+                                            .menuStyle(.borderlessButton)
                                         }
-                                        .padding(.horizontal, 4)
                                     }
 
                                     RibbonGroup(label: "Time Machine") {
