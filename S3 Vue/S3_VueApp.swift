@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 
 @main
@@ -11,6 +12,11 @@ struct S3_VueApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .onAppear {
+                    if #available(macOS 13.0, iOS 16.0, *) {
+                        S3Shortcuts.updateAppShortcutParameters()
+                    }
+                }
         }
         #if os(macOS)
             .commands {

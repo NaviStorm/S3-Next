@@ -437,6 +437,12 @@ class S3Client {
         }
     }
 
+    func createFolder(key: String) async throws {
+        // Ensure key ends with /
+        let folderKey = key.hasSuffix("/") ? key : key + "/"
+        try await putObject(key: folderKey, data: Data())
+    }
+
     func deleteRecursive(prefix: String, onProgress: (@Sendable (Int, Int) -> Void)? = nil)
         async throws
     {
@@ -786,6 +792,29 @@ class S3Client {
             }
         }
         return metadata
+    }
+
+    func getObject(key: String, versionId: String? = nil) async throws -> (Data, [String: String]) {
+        let url = try generateDownloadURL(key: key, versionId: versionId)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? "<no body>"
+            throw S3Error.apiError(httpResponse.statusCode, "GetObject Failed: \(body)")
+        }
+
+        var metadata: [String: String] = [:]
+        for (key, value) in httpResponse.allHeaderFields {
+            if let keyStr = key as? String, let valueStr = value as? String {
+                metadata[keyStr.lowercased()] = valueStr
+            }
+        }
+        return (data, metadata)
     }
 
     func getObjectACL(key: String) async throws -> Bool {
@@ -1296,4 +1325,5 @@ class S3Client {
         let objects = parser.parse(data: data)
         return (objects, "")
     }
+
 }
