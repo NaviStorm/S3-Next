@@ -27,8 +27,8 @@
 
 
 ### 🚀 Nouvelles Actions pour Raccourcis (Automatisations) :
-- 📂 Gestion de Dossiers : Créez et supprimez des dossiers entiers sur votre S3 sans ouvrir l'application.
-- ⬇️ Téléchargement : Récupérez automatiquement des fichiers depuis votre cloud pour les utiliser dans vos autres apps ou workflows.
+- 📂 Gestion de Dossiers : Listez (option recursive), Créez et supprimez des dossiers entiers sur votre S3 sans ouvrir l'application.
+- ⬇️ Téléchargement : Récupérez automatiquement des fichiers depuis votre stockage S3 pour les utiliser dans vos autres apps ou workflows.
 - ⬆️ Upload Avancé : Envoyez maintenant plusieurs fichiers d'un coup et choisissez précisément le dossier de destination.
 - 🔐 Sécurité Intégrée : Support du déchiffrement (CSE) directement dans les actions de téléchargement.
 Idéal pour automatiser vos sauvegardes, vos partages et vos flux de travail quotidiens sur iOS et macOS.

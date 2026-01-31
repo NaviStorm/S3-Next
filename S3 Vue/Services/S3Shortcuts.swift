@@ -635,6 +635,56 @@ struct DownloadFileIntent: AppIntent {
     }
 }
 
+@available(macOS 13.0, iOS 16.0, *)
+@available(macOS 13.0, iOS 16.0, *)
+struct ListFoldersIntent: AppIntent {
+    static var title: LocalizedStringResource = "Lister les dossiers S3"
+    static var description: IntentDescription = IntentDescription(
+        "Liste les sous-dossiers d'un bucket S3 donné.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Site", description: "Le site S3 à utiliser")
+    var site: S3SiteEntity
+
+    @Parameter(title: "Bucket", description: "Le nom du bucket")
+    var bucket: String
+
+    @Parameter(
+        title: "Dossier Parent (Préfixe)", description: "Le chemin du dossier parent (optionnel)")
+    var prefix: String?
+
+    @Parameter(
+        title: "Récursif", description: "Scanner tous les sous-dossiers (peut être lent)",
+        default: false)
+    var recursive: Bool
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Lister les dossiers dans \(\.$bucket) sur \(\.$site)") {
+            \.$prefix
+            \.$recursive
+        }
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<[String]> {
+        log(
+            "Début de ListFoldersIntent. Site: \(site.name), Bucket: \(bucket), Prefix: \(prefix ?? "racine"), Recursive: \(recursive)"
+        )
+
+        let client = try S3ShortcutsHelper.getClient(for: site, bucket: bucket)
+
+        do {
+            let folders = try await client.listFolders(
+                prefix: prefix ?? "", recursive: recursive)
+            log("Succès: \(folders.count) dossiers trouvés")
+            return .result(value: folders)
+        } catch {
+            log("Erreur lors du listage des dossiers: \(error.localizedDescription)")
+            throw SimpleError(message: "Erreur: \(error.localizedDescription)")
+        }
+    }
+}
+
 struct SimpleError: LocalizedError {
     let message: String
     var errorDescription: String? { message }

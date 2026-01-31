@@ -1325,4 +1325,162 @@ class S3Client {
         return (objects, "")
     }
 
+    func listFolders(prefix: String, recursive: Bool = false) async throws -> [String] {
+        let url = try generateDownloadURL(key: "")
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+
+        var queryItems = [
+            URLQueryItem(name: "list-type", value: "2"),
+            URLQueryItem(name: "prefix", value: prefix),
+        ]
+
+        if !recursive {
+            queryItems.append(URLQueryItem(name: "delimiter", value: "/"))
+        }
+
+        components.queryItems = queryItems
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        try signRequest(request: &request, payload: "")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw S3Error.apiError(httpResponse.statusCode, "ListFolders Failed: \(body)")
+        }
+
+        if recursive {
+            let parser = S3RecursiveFolderParser(rootPrefix: prefix)
+            return parser.parse(data: data)
+        } else {
+            let parser = S3FolderParser()
+            return parser.parse(data: data)
+        }
+    }
+
+}
+
+class S3FolderParser: NSObject, XMLParserDelegate {
+    private var folders: [String] = []
+    private var currentElement = ""
+    private var inCommonPrefixes = false
+    private var currentPrefix = ""
+
+    func parse(data: Data) -> [String] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return folders
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        currentElement = elementName
+        if elementName == "CommonPrefixes" {
+            inCommonPrefixes = true
+        }
+        if inCommonPrefixes && elementName == "Prefix" {
+            currentPrefix = ""
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "CommonPrefixes" {
+            inCommonPrefixes = false
+        }
+        if inCommonPrefixes && elementName == "Prefix" {
+            if !currentPrefix.isEmpty {
+                folders.append(currentPrefix)
+            }
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if inCommonPrefixes && currentElement == "Prefix" {
+            currentPrefix += string
+        }
+    }
+}
+
+class S3RecursiveFolderParser: NSObject, XMLParserDelegate {
+    private var folders: Set<String> = []
+    private var currentElement = ""
+    private var rootPrefix: String
+    private var currentKey = ""
+
+    init(rootPrefix: String) {
+        self.rootPrefix = rootPrefix
+        super.init()
+    }
+
+    func parse(data: Data) -> [String] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return Array(folders).sorted()
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        currentElement = elementName
+        if elementName == "Key" {
+            currentKey = ""
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if elementName == "Key" {
+            processKey(currentKey)
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if currentElement == "Key" {
+            currentKey += string
+        }
+    }
+
+    private func processKey(_ key: String) {
+        let validKey = key
+
+        if !rootPrefix.isEmpty && !validKey.hasPrefix(rootPrefix) {
+            return
+        }
+
+        if let lastSlashIndex = validKey.lastIndex(of: "/") {
+            let folderPath = String(validKey[...lastSlashIndex])
+
+            if folderPath == rootPrefix { return }
+
+            folders.insert(folderPath)
+
+            var path = folderPath
+            while path.count > rootPrefix.count {
+                let temp = String(path.dropLast())
+                if let prevSlash = temp.lastIndex(of: "/") {
+                    path = String(temp[...prevSlash])
+                    if path.hasPrefix(rootPrefix) && path != rootPrefix {
+                        folders.insert(path)
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+        }
+    }
 }
