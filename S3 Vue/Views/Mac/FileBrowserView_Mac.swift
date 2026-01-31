@@ -150,36 +150,7 @@
                         } else {
                             Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
-                                    HStack {
-                                        Image(
-                                            systemName: object.key == ".."
-                                                ? "arrow.up.circle.fill"
-                                                : (object.isFolder ? "folder.fill" : "doc")
-                                        )
-                                        .foregroundColor(
-                                            diffColor(for: object.key)
-                                                ?? (object.isFolder ? .blue : .secondary)
-                                        )
-                                        Text(displayName(for: object.key))
-                                            .fontWeight(object.isFolder ? .medium : .regular)
-                                            .strikethrough(isRemoved(object.key))
-                                            .opacity(isRemoved(object.key) ? 0.6 : 1.0)
-                                    }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectedObjectIds = [object.id]
-                                    }
-                                    .onTapGesture(count: 2) {
-                                        if isRemoved(object.key) { return }
-                                        if object.key == ".." {
-                                            appState.navigateBack()
-                                        } else if object.isFolder {
-                                            appState.navigateTo(
-                                                folder: displayName(for: object.key))
-                                        } else {
-                                            appState.downloadFile(key: object.key)
-                                        }
-                                    }
+                                    nameCell(object: object, appState: appState)
                                 }
                                 .width(min: 200, ideal: 300)
 
@@ -368,175 +339,198 @@
                                         }
                                     } else {
                                         // Folder Stats
+                                        // Folder Stats
+                                        let cachedStats = appState.getCachedFolderStats(
+                                            for: selected.key)
+
                                         if isStatsLoading {
                                             ProgressView("Calcul des stats...").controlSize(.small)
-                                        } else if let stats = folderStats {
+                                        } else if let stats = cachedStats {
                                             DetailItem(
                                                 label: "Taille totale",
                                                 value: formatBytes(stats.size))
 
-                                            Divider()
-
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text("Lien de Dépôt").font(.caption)
-                                                    .foregroundColor(
-                                                        .secondary)
-                                                Button(action: { showingUploadLink = true }) {
-                                                    Label(
-                                                        "Générer un lien de dépôt",
-                                                        systemImage: "tray.and.arrow.up.fill"
-                                                    )
-                                                    .frame(maxWidth: .infinity)
+                                            Button("Rafraichir la taille") {
+                                                Task {
+                                                    isStatsLoading = true
+                                                    _ = await appState.calculateFolderStats(
+                                                        folderKey: selected.key)
+                                                    isStatsLoading = false
                                                 }
-                                                .buttonStyle(.bordered)
-                                                .controlSize(.small)
-                                                Text(
-                                                    "Permet à d'autres de déposer des fichiers dans ce dossier."
-                                                )
-                                                .font(.system(size: 9))
-                                                .foregroundColor(.secondary)
                                             }
+                                            .controlSize(.small)
+                                        } else {
+                                            Button("Calculer la taille") {
+                                                Task {
+                                                    isStatsLoading = true
+                                                    _ = await appState.calculateFolderStats(
+                                                        folderKey: selected.key)
+                                                    isStatsLoading = false
+                                                }
+                                            }
+                                            .controlSize(.small)
+                                        }
+
+                                        Divider()
+
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("Lien de Dépôt").font(.caption)
+                                                .foregroundColor(
+                                                    .secondary)
+                                            Button(action: { showingUploadLink = true }) {
+                                                Label(
+                                                    "Générer un lien de dépôt",
+                                                    systemImage: "tray.and.arrow.up.fill"
+                                                )
+                                                .frame(maxWidth: .infinity)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
+                                            Text(
+                                                "Permet à d'autres de déposer des fichiers dans ce dossier."
+                                            )
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.secondary)
                                         }
                                     }
                                 }
-                            }
 
-                            if !selected.isFolder {
-                                Button("Télécharger") {
-                                    appState.downloadFile(key: selected.key)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .frame(maxWidth: .infinity)
-
-                                Button(action: { showingSecurity = true }) {
-                                    Label(
-                                        "Sécurité & Verrouillage",
-                                        systemImage: "shield.lefthalf.filled"
-                                    )
+                                if !selected.isFolder {
+                                    Button("Télécharger") {
+                                        appState.downloadFile(key: selected.key)
+                                    }
+                                    .buttonStyle(.borderedProminent)
                                     .frame(maxWidth: .infinity)
+
+                                    Button(action: { showingSecurity = true }) {
+                                        Label(
+                                            "Sécurité & Verrouillage",
+                                            systemImage: "shield.lefthalf.filled"
+                                        )
+                                        .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.bordered)
                                 }
-                                .buttonStyle(.bordered)
                             }
-                        }
-                        .padding()
-                        .frame(minWidth: 250, maxWidth: 350)
-                        .background(Color(NSColor.windowBackgroundColor))
-                        .task(id: selected.id) {
-                            if selected.isFolder {
-                                isStatsLoading = true
-                                folderStats = await appState.calculateFolderStats(
-                                    folderKey: selected.key)
-                                isStatsLoading = false
-                            } else {
-                                appState.loadACL(for: selected.key)
-                                appState.loadMetadata(for: selected.key)
-                                appState.loadSecurityStatus(for: selected.key)
+                            .padding()
+                            .frame(minWidth: 250, maxWidth: 350)
+                            .background(Color(NSColor.windowBackgroundColor))
+                            .task(id: selected.id) {
+                                if selected.isFolder {
+                                    folderStats = nil  // Reset stats to show "Calculate" button
+                                } else {
+                                    appState.loadACL(for: selected.key)
+                                    appState.loadMetadata(for: selected.key)
+                                    appState.loadSecurityStatus(for: selected.key)
+                                }
                             }
                         }
                     }
                 }
-            }
-            .quickLookPreview($appState.quickLookURL)
-            .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
-                TextField("Nom du dossier", text: $newFolderName)
-                Button("Créer") {
-                    if !newFolderName.isEmpty {
-                        appState.createFolder(name: newFolderName)
-                        newFolderName = ""
+                .quickLookPreview($appState.quickLookURL)
+                .alert("Nouveau Dossier", isPresented: $showingCreateFolder) {
+                    TextField("Nom du dossier", text: $newFolderName)
+                    Button("Créer") {
+                        if !newFolderName.isEmpty {
+                            appState.createFolder(name: newFolderName)
+                            newFolderName = ""
+                        }
+                    }
+                    Button("Annuler", role: .cancel) { newFolderName = "" }
+                }
+                .alert("Renommer", isPresented: $showingRename) {
+                    TextField("Nouveau nom", text: $renameItemName)
+                    Button("Renommer") {
+                        if !renameItemName.isEmpty {
+                            appState.renameObject(
+                                oldKey: renameItemKey, newName: renameItemName,
+                                isFolder: renameIsFolder
+                            )
+                        }
+                    }
+                    Button("Annuler", role: .cancel) { renameItemName = "" }
+                }
+                .alert("Lien de Dépôt", isPresented: $showingUploadLink) {
+                    TextField("Taille max autorisée (Mo)", text: $maxUploadSize)
+                    Button("Créer la Page Web de dépôt") {
+                        if let size = Int(maxUploadSize), let selected = selectedObject {
+                            appState.createPublicUploadPage(for: selected.key, maxSizeMB: size)
+                        }
+                    }
+                    Button("Copier commande CURL") {
+                        if let size = Int(maxUploadSize), let selected = selectedObject {
+                            appState.copyUploadLink(for: selected.key, maxSizeMB: size)
+                        }
+                    }
+                    Button("Annuler", role: .cancel) {}
+                } message: {
+                    Text(
+                        "Choisissez comment générer le lien de dépôt (valide 24h). La page web est l'option la plus simple pour vos contacts."
+                    )
+                }
+                .alert("Suppression", isPresented: $showingDelete) {
+                    Button("Supprimer", role: .destructive) {
+                        if deleteIsFolder {
+                            appState.deleteFolder(key: deleteItemKey)
+                        } else {
+                            appState.deleteObject(key: deleteItemKey)
+                        }
+                    }
+                    Button("Annuler", role: .cancel) {}
+                } message: {
+                    Text(
+                        deleteIsFolder
+                            ? "Tout le contenu du dossier sera supprimé."
+                            : "Cette action est irréversible.")
+                }
+                .fileImporter(
+                    isPresented: $showingFileImporter, allowedContentTypes: [.item],
+                    allowsMultipleSelection: true
+                ) { result in
+                    if case .success(let urls) = result {
+                        for url in urls { appState.uploadFile(url: url) }
                     }
                 }
-                Button("Annuler", role: .cancel) { newFolderName = "" }
-            }
-            .alert("Renommer", isPresented: $showingRename) {
-                TextField("Nouveau nom", text: $renameItemName)
-                Button("Renommer") {
-                    if !renameItemName.isEmpty {
-                        appState.renameObject(
-                            oldKey: renameItemKey, newName: renameItemName, isFolder: renameIsFolder
-                        )
-                    }
-                }
-                Button("Annuler", role: .cancel) { renameItemName = "" }
-            }
-            .alert("Lien de Dépôt", isPresented: $showingUploadLink) {
-                TextField("Taille max autorisée (Mo)", text: $maxUploadSize)
-                Button("Créer la Page Web de dépôt") {
-                    if let size = Int(maxUploadSize), let selected = selectedObject {
-                        appState.createPublicUploadPage(for: selected.key, maxSizeMB: size)
-                    }
-                }
-                Button("Copier commande CURL") {
-                    if let size = Int(maxUploadSize), let selected = selectedObject {
-                        appState.copyUploadLink(for: selected.key, maxSizeMB: size)
-                    }
-                }
-                Button("Annuler", role: .cancel) {}
-            } message: {
-                Text(
-                    "Choisissez comment générer le lien de dépôt (valide 24h). La page web est l'option la plus simple pour vos contacts."
+                .background(
+                    Color.clear
+                        .fileImporter(
+                            isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
+                            allowsMultipleSelection: false
+                        ) { result in
+                            if case .success(let urls) = result, let url = urls.first {
+                                appState.uploadFolder(url: url)
+                            }
+                        }
                 )
-            }
-            .alert("Suppression", isPresented: $showingDelete) {
-                Button("Supprimer", role: .destructive) {
-                    if deleteIsFolder {
-                        appState.deleteFolder(key: deleteItemKey)
-                    } else {
-                        appState.deleteObject(key: deleteItemKey)
-                    }
-                }
-                Button("Annuler", role: .cancel) {}
-            } message: {
-                Text(
-                    deleteIsFolder
-                        ? "Tout le contenu du dossier sera supprimé."
-                        : "Cette action est irréversible.")
-            }
-            .fileImporter(
-                isPresented: $showingFileImporter, allowedContentTypes: [.item],
-                allowsMultipleSelection: true
-            ) { result in
-                if case .success(let urls) = result {
-                    for url in urls { appState.uploadFile(url: url) }
-                }
-            }
-            .background(
-                Color.clear
-                    .fileImporter(
-                        isPresented: $showingFolderImporter, allowedContentTypes: [.folder],
-                        allowsMultipleSelection: false
-                    ) { result in
-                        if case .success(let urls) = result, let url = urls.first {
-                            appState.uploadFolder(url: url)
+                .sheet(isPresented: $showingSecurity) {
+                    if let selected = selectedObject {
+                        NavigationStack {
+                            ObjectSecurityView(objectKey: selected.key)
+                                .id(selected.key)
+                                .toolbar {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        Button("Terminer") { showingSecurity = false }
+                                    }
+                                }
                         }
                     }
-            )
-            .sheet(isPresented: $showingSecurity) {
-                if let selected = selectedObject {
+                }
+                .sheet(isPresented: $showingLifecycle) {
                     NavigationStack {
-                        ObjectSecurityView(objectKey: selected.key)
-                            .id(selected.key)
+                        BucketLifecycleView()
                             .toolbar {
                                 ToolbarItem(placement: .confirmationAction) {
-                                    Button("Terminer") { showingSecurity = false }
+                                    Button("Terminer") { showingLifecycle = false }
                                 }
                             }
                     }
+                    .frame(minWidth: 600, minHeight: 400)
+                }
+                .sheet(isPresented: $showingTimeMachine) {
+                    SnapshotTimelineView()
                 }
             }
-            .sheet(isPresented: $showingLifecycle) {
-                NavigationStack {
-                    BucketLifecycleView()
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Terminer") { showingLifecycle = false }
-                            }
-                        }
-                }
-                .frame(minWidth: 600, minHeight: 400)
-            }
-            .sheet(isPresented: $showingTimeMachine) {
-                SnapshotTimelineView()
-            }
+
         }
 
         func displayName(for key: String) -> String {
@@ -652,6 +646,48 @@
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(NSColor.windowBackgroundColor))
+        }
+        @ViewBuilder
+        func nameCell(object: S3Object, appState: S3AppState) -> some View {
+            HStack {
+                Image(
+                    systemName: object.key == ".."
+                        ? "arrow.up.circle.fill"
+                        : (object.isFolder ? "folder.fill" : "doc")
+                )
+                .foregroundColor(
+                    diffColor(for: object.key)
+                        ?? (object.isFolder ? .blue : .secondary)
+                )
+                Text(displayName(for: object.key))
+                    .fontWeight(object.isFolder ? .medium : .regular)
+                    .strikethrough(isRemoved(object.key))
+                    .opacity(isRemoved(object.key) ? 0.6 : 1.0)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                appState.appendLog("DEBUG: Double tap detected on \(object.key)")
+                if isRemoved(object.key) {
+                    appState.appendLog("DEBUG: Object is removed, ignoring")
+                    return
+                }
+                if object.key == ".." {
+                    appState.appendLog("DEBUG: Navigating back")
+                    appState.navigateBack()
+                } else if object.isFolder {
+                    appState.appendLog("DEBUG: Navigating to folder \(object.key)")
+                    appState.navigateTo(
+                        folder: displayName(for: object.key))
+                } else {
+                    appState.appendLog("DEBUG: Downloading file \(object.key)")
+                    // For files, download/open
+                    appState.downloadFile(key: object.key)
+                }
+            }
+            .onTapGesture(count: 1) {
+                appState.appendLog("DEBUG: Single tap detected on \(object.key)")
+                selectedObjectIds = [object.id]
+            }
         }
     }
 

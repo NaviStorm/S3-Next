@@ -150,7 +150,6 @@ class S3Client {
         dateFormatter.dateFormat = "yyyyMMdd"
         let datestamp = dateFormatter.string(from: date)
 
-        let encodedKey = awsEncode(key, encodeSlash: false)
         let (components, host) = try buildComponents(key: key)
         let canonicalUri = components.path
 

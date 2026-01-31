@@ -73,6 +73,11 @@ public final class S3AppState: ObservableObject {
         }
     }
 
+    // Helper for View debug logging
+    func appendLog(_ message: String) {
+        log(message)
+    }
+
     // Sort Options
     enum SortOption: String, CaseIterable, Identifiable {
         case name = "Name"
@@ -98,6 +103,22 @@ public final class S3AppState: ObservableObject {
     @Published var isVersionsLoading = false
     @Published var isVersioningEnabled: Bool? = nil
     @Published var selectedObjectIsPublic: Bool? = nil
+
+    public struct FolderStats {
+        let size: Int64
+        let count: Int
+    }
+
+    // Cache Stats
+    @Published var folderStatsCache: [String: FolderStats] = [:]
+
+    func cacheFolderStats(for key: String, stats: FolderStats) {
+        folderStatsCache[key] = stats
+    }
+
+    func getCachedFolderStats(for key: String) -> FolderStats? {
+        folderStatsCache[key]
+    }
     @Published var selectedObjectMetadata: [String: String] = [:]
     @Published var quickLookURL: URL? = nil
     @Published var isACLLoading = false
@@ -973,10 +994,15 @@ public final class S3AppState: ObservableObject {
     }
 
     // Stats
-    func calculateFolderStats(folderKey: String) async -> (Int, Int64)? {
+    func calculateFolderStats(folderKey: String) async -> FolderStats? {
         guard let client = client else { return nil }
         do {
-            return try await client.calculateFolderStats(prefix: folderKey)
+            let result = try await client.calculateFolderStats(prefix: folderKey)
+            let stats = FolderStats(size: result.1, count: result.0)
+            await MainActor.run {
+                self.cacheFolderStats(for: folderKey, stats: stats)
+            }
+            return stats
         } catch {
             log("[Stats Error] \(error.localizedDescription)")
             return nil
@@ -1097,7 +1123,7 @@ public final class S3AppState: ObservableObject {
             separator: ",\n            ")
 
         // URL de base pour l'affichage (sans le slash final si présent)
-        let displayEndpoint = endpoint.replacingOccurrences(of: "https://", with: "")
+        _ = endpoint.replacingOccurrences(of: "https://", with: "")
             .replacingOccurrences(of: "http://", with: "")
 
         return """

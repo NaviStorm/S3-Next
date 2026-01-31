@@ -28,7 +28,7 @@ import UniformTypeIdentifiers
         @State private var showingTransfers = false
         @State private var showingHistory = false
         @State private var selectedItemForInfo: S3Object? = nil
-        @State private var infoFolderStats: (count: Int, size: Int64)?
+        @State private var infoFolderStats: S3AppState.FolderStats?
         @State private var isInfoStatsLoading = false
 
         var body: some View {
@@ -490,8 +490,16 @@ import UniformTypeIdentifiers
                 .task {
                     if object.isFolder {
                         isInfoStatsLoading = true
-                        infoFolderStats = await appState.calculateFolderStats(folderKey: object.key)
-                        isInfoStatsLoading = false
+                        if let cached = appState.getCachedFolderStats(for: object.key) {
+                            infoFolderStats = cached
+                            isInfoStatsLoading = false
+                        } else {
+                            Task {
+                                infoFolderStats = await appState.calculateFolderStats(
+                                    folderKey: object.key)
+                                isInfoStatsLoading = false
+                            }
+                        }
                     } else {
                         appState.loadACL(for: object.key)
                         appState.loadMetadata(for: object.key)
@@ -565,6 +573,22 @@ import UniformTypeIdentifiers
             } else if let stats = infoFolderStats {
                 LabeledContent("Objets", value: "\(stats.count)")
                 LabeledContent("Taille totale", value: formatBytes(stats.size))
+                Button("Rafraîchir la taille") {
+                    Task {
+                        isInfoStatsLoading = true
+                        infoFolderStats = await appState.calculateFolderStats(folderKey: object.key)
+                        isInfoStatsLoading = false
+                    }
+                }
+                .font(.caption)
+            } else {
+                Button("Calculer la taille") {
+                    Task {
+                        isInfoStatsLoading = true
+                        infoFolderStats = await appState.calculateFolderStats(folderKey: object.key)
+                        isInfoStatsLoading = false
+                    }
+                }
             }
         }
 
