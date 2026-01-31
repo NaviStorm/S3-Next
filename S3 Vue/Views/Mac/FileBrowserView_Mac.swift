@@ -166,9 +166,6 @@
                                             .opacity(isRemoved(object.key) ? 0.6 : 1.0)
                                     }
                                     .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectedObjectIds = [object.id]
-                                    }
                                     .onTapGesture(count: 2) {
                                         if isRemoved(object.key) { return }
                                         if object.key == ".." {
