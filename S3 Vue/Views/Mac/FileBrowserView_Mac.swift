@@ -665,13 +665,6 @@
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
             .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    // Access the wrapped value directly to avoid dynamic member lookup issues
-                    appState.appendLog("DEBUG: Single tap detected on \(object.key)")
-                    selectedObjectIds = [object.id]
-                }
-            )
             .onTapGesture(count: 2) {
                 appState.appendLog("DEBUG: Double tap detected on \(object.key)")
                 if isRemoved(object.key) {
@@ -687,8 +680,13 @@
                         folder: displayName(for: object.key))
                 } else {
                     appState.appendLog("DEBUG: Downloading file \(object.key)")
+                    // For files, download/open
                     appState.downloadFile(key: object.key)
                 }
+            }
+            .onTapGesture(count: 1) {
+                appState.appendLog("DEBUG: Single tap detected on \(object.key)")
+                selectedObjectIds = [object.id]
             }
         }
     }
