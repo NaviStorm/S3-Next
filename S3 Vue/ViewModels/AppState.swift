@@ -263,7 +263,10 @@ public final class S3AppState: ObservableObject {
 
         let newClient = S3Client(
             accessKey: accessKey, secretKey: secretKey, region: region, bucket: bucket,
-            endpoint: endpoint, usePathStyle: usePathStyle)
+            endpoint: endpoint, usePathStyle: usePathStyle,
+            onLog: { [weak self] msg, file, function, line in
+                self?.log(msg, file: file, function: function, line: line)
+            })
 
         if bucket.isEmpty {
             log("No bucket specified. Testing connection via listBuckets...")
@@ -324,7 +327,10 @@ public final class S3AppState: ObservableObject {
 
         let createClient = S3Client(
             accessKey: accessKey, secretKey: secretKey, region: region, bucket: name,
-            endpoint: endpoint, usePathStyle: usePathStyle)
+            endpoint: endpoint, usePathStyle: usePathStyle,
+            onLog: { [weak self] msg, file, function, line in
+                self?.log(msg, file: file, function: function, line: line)
+            })
 
         do {
             // 1. Create the bucket with Object Lock and ACL

@@ -1,13 +1,13 @@
 import Foundation
 import SwiftUI
 
-enum S3Error: Error, LocalizedError {
+public enum S3Error: Error, LocalizedError {
     case invalidUrl
     case requestFailed(Error)
     case invalidResponse
     case apiError(Int, String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidUrl: return "Configuration d'URL invalide."
         case .requestFailed(let error):

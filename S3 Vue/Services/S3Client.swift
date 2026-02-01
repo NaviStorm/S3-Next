@@ -10,9 +10,12 @@ class S3Client {
     private let endpoint: String
     private let usePathStyle: Bool
 
+    // Callback pour le logging avec contexte (Message, File, Function, Line)
+    public var onLog: ((String, String, String, Int) -> Void)?
+
     init(
         accessKey: String, secretKey: String, region: String, bucket: String, endpoint: String,
-        usePathStyle: Bool
+        usePathStyle: Bool, onLog: ((String, String, String, Int) -> Void)? = nil
     ) {
         self.accessKey = accessKey
         self.secretKey = secretKey
@@ -34,9 +37,21 @@ class S3Client {
         self.endpoint = endpoint
         self.usePathStyle = usePathStyle
 
-        print(
+        self.onLog = onLog
+
+        let initMsg =
             "[S3Client] Initialized: Bucket=\(bucket), Region=\(self.region), Endpoint=\(endpoint), PathStyle=\(usePathStyle)"
-        )
+        print(initMsg)
+        print(initMsg)
+        self.onLog?(initMsg, #file, #function, #line)
+    }
+
+    // Helper interne pour logger avec le contexte
+    private func log(
+        _ message: String, file: String = #file, function: String = #function, line: Int = #line
+    ) {
+        print(message)
+        onLog?(message, file, function, line)
     }
 
     private func awsEncode(_ string: String, encodeSlash: Bool = true) -> String {
@@ -93,8 +108,7 @@ class S3Client {
             guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
 
             var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            try signRequest(request: &request, payload: "")
+            try signRequest(request: &request, method: "GET", payload: "")
 
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -346,27 +360,35 @@ class S3Client {
 
     func listBuckets() async throws -> [String] {
         var urlString: String
+        log("[S3-DEBUG] Starting listBuckets. Region: \(region), Endpoint: \(endpoint)")
+
         if !endpoint.isEmpty {
             urlString = endpoint.hasPrefix("http") ? endpoint : "https://\(endpoint)"
             if urlString.hasSuffix("/") { urlString = String(urlString.dropLast()) }
         } else {
             urlString = "https://s3.\(region).amazonaws.com"
         }
+        log("[S3-DEBUG] listBuckets URL: \(urlString)")
 
         guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        log("[S3-DEBUG] Signing request for listBuckets...")
 
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            log("[S3-DEBUG] listBuckets: Invalid Response (not HTTP)")
+            throw S3Error.invalidResponse
+        }
 
         if !(200...299).contains(httpResponse.statusCode) {
+            log("[S3-DEBUG] listBuckets: HTTP Error \(httpResponse.statusCode)")
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw S3Error.apiError(httpResponse.statusCode, "ListBuckets Failed: \(body)")
         }
 
+        // Mettre log debug
         return S3BucketParser().parse(data: data)
     }
 
@@ -394,7 +416,7 @@ class S3Client {
             request.setValue(aclValue, forHTTPHeaderField: "x-amz-acl")
         }
 
-        try signRequest(request: &request, payload: bodyData)
+        try signRequest(request: &request, method: "PUT", payload: bodyData)
         request.httpBody = bodyData
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -411,7 +433,7 @@ class S3Client {
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
 
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "DELETE", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -425,8 +447,7 @@ class S3Client {
     func deleteObject(key: String, versionId: String? = nil) async throws {
         let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "DELETE", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -495,8 +516,7 @@ class S3Client {
             components.queryItems = queryItems
 
             var request = URLRequest(url: components.url!)
-            request.httpMethod = "GET"
-            try signRequest(request: &request, payload: "")
+            try signRequest(request: &request, method: "GET", payload: "")
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw S3Error.invalidResponse
@@ -540,8 +560,7 @@ class S3Client {
             components.queryItems = queryItems
 
             var request = URLRequest(url: components.url!)
-            request.httpMethod = "GET"
-            try signRequest(request: &request, payload: "")
+            try signRequest(request: &request, method: "GET", payload: "")
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw S3Error.invalidResponse
@@ -589,7 +608,7 @@ class S3Client {
         }
 
         let bodyData = data ?? Data()
-        try signRequest(request: &request, payload: bodyData)
+        try signRequest(request: &request, method: "PUT", payload: bodyData)
         request.httpBody = bodyData
         request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
         let (responseData, response) = try await URLSession.shared.data(for: request)
@@ -611,12 +630,11 @@ class S3Client {
         components.queryItems = [URLQueryItem(name: "uploads", value: nil)]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
         for (mKey, mValue) in metadata {
             request.setValue(mValue, forHTTPHeaderField: "x-amz-meta-\(mKey)")
         }
 
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "POST", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
 
@@ -643,8 +661,7 @@ class S3Client {
         ]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "PUT"
-        try signRequest(request: &request, payload: data)
+        try signRequest(request: &request, method: "PUT", payload: data)
         request.httpBody = data
         request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
 
@@ -681,8 +698,7 @@ class S3Client {
 
         let bodyData = xmlBody.data(using: .utf8)!
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        try signRequest(request: &request, payload: bodyData)
+        try signRequest(request: &request, method: "POST", payload: bodyData)
         request.httpBody = bodyData
         request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
         request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
@@ -702,8 +718,7 @@ class S3Client {
         components.queryItems = [URLQueryItem(name: "uploadId", value: uploadId)]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "DELETE"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "DELETE", payload: "")
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -719,8 +734,7 @@ class S3Client {
         components.queryItems = [URLQueryItem(name: "uploads", value: nil)]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -739,8 +753,7 @@ class S3Client {
         components.queryItems = [URLQueryItem(name: "uploadId", value: uploadId)]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -759,8 +772,7 @@ class S3Client {
             URLQueryItem(name: "versions", value: nil), URLQueryItem(name: "prefix", value: key),
         ]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -774,8 +786,7 @@ class S3Client {
     func headObject(key: String, versionId: String? = nil) async throws -> [String: String] {
         let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "HEAD", payload: "")
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -796,8 +807,7 @@ class S3Client {
     func getObject(key: String, versionId: String? = nil) async throws -> (Data, [String: String]) {
         let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -821,8 +831,7 @@ class S3Client {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "acl", value: nil)]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -839,9 +848,8 @@ class S3Client {
     ) {
         let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
         request.setValue(range, forHTTPHeaderField: "Range")
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -866,9 +874,8 @@ class S3Client {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "acl", value: nil)]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "PUT"
         request.setValue(isPublic ? "public-read" : "private", forHTTPHeaderField: "x-amz-acl")
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "PUT", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -888,8 +895,7 @@ class S3Client {
             (components.queryItems ?? []) + [URLQueryItem(name: "retention", value: nil)]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -921,10 +927,9 @@ class S3Client {
         let body = xml.data(using: .utf8)!
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "PUT"
         request.httpBody = body
         request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-        try signRequest(request: &request, payload: body)
+        try signRequest(request: &request, method: "PUT", payload: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -941,8 +946,7 @@ class S3Client {
             (components.queryItems ?? []) + [URLQueryItem(name: "legal-hold", value: nil)]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -968,10 +972,9 @@ class S3Client {
         let body = xml.data(using: .utf8)!
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "PUT"
         request.httpBody = body
         request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-        try signRequest(request: &request, payload: body)
+        try signRequest(request: &request, method: "PUT", payload: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -986,8 +989,7 @@ class S3Client {
         var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "object-lock", value: nil)]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if httpResponse.statusCode == 404 || httpResponse.statusCode == 403 { return false }
@@ -1001,8 +1003,7 @@ class S3Client {
         var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "versioning", value: nil)]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -1018,15 +1019,17 @@ class S3Client {
         var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "versioning", value: nil)]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "PUT"
+
         let status = enabled ? "Enabled" : "Suspended"
         let xmlBody =
             "<VersioningConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>\(status)</Status></VersioningConfiguration>"
         let bodyData = xmlBody.data(using: .utf8)!
-        try signRequest(request: &request, payload: bodyData)
+
         request.httpBody = bodyData
         request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
         request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        try signRequest(request: &request, method: "PUT", payload: bodyData)
+
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -1067,7 +1070,7 @@ class S3Client {
 
         print("[S3] Copying from: \(headerValue) to: \(destinationKey)")
 
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "PUT", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
         if !(200...299).contains(httpResponse.statusCode) {
@@ -1079,8 +1082,7 @@ class S3Client {
     func fetchObjectData(key: String, versionId: String? = nil) async throws -> (Data, String) {
         let url = try generateDownloadURL(key: key, versionId: versionId)
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
         let (data, response) = try await URLSession.shared.data(for: request)
         var logs =
             "Download Key: \(key)\(versionId != nil ? " (Version: \(versionId!))" : "")\nURL: \(url.absoluteString)\n"
@@ -1094,7 +1096,9 @@ class S3Client {
         return (data, logs)
     }
 
-    private func signRequest(request: inout URLRequest, payload: Any) throws {
+    private func signRequest(request: inout URLRequest, method: String, payload: Any) throws {
+        request.httpMethod = method
+
         let date = Date()
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
@@ -1104,7 +1108,6 @@ class S3Client {
         let datestamp = dateFormatter.string(from: date)
 
         guard let url = request.url, let host = url.host else { return }
-        let method = request.httpMethod ?? "GET"
 
         // Canonical URI
         // Important: Foundation's url.path STRIPS the trailing slash.
@@ -1237,8 +1240,7 @@ class S3Client {
         guard let url = URL(string: urlString) else { throw S3Error.invalidUrl }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -1299,7 +1301,6 @@ class S3Client {
         let body = xml.data(using: .utf8)!
 
         var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
         request.httpBody = body
         request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
 
@@ -1308,7 +1309,7 @@ class S3Client {
         let md5Base64 = Data(md5).base64EncodedString()
         request.setValue(md5Base64, forHTTPHeaderField: "Content-MD5")
 
-        try signRequest(request: &request, payload: body)
+        try signRequest(request: &request, method: "PUT", payload: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }
@@ -1341,8 +1342,7 @@ class S3Client {
         components.queryItems = queryItems
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        try signRequest(request: &request, payload: "")
+        try signRequest(request: &request, method: "GET", payload: "")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { throw S3Error.invalidResponse }

@@ -126,7 +126,7 @@ struct UploadFileIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let prefix = pathPrefix ?? ""
+        let prefix = S3ShortcutsHelper.cleanPrefix(pathPrefix)
         log("Début UploadFileIntent. Site: \(site.name), Bucket: \(bucket), Prefix: '\(prefix)'")
 
         let client = try S3ShortcutsHelper.getClient(for: site, bucket: bucket)
@@ -214,7 +214,7 @@ struct ListObjectsIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<[String]> {
         log("Début de l pour le site '\(site.name)' et bucket '\(bucket)'")
         let client = try S3ShortcutsHelper.getClient(for: site, bucket: bucket)
-        let targetPrefix = prefix ?? ""
+        let targetPrefix = S3ShortcutsHelper.cleanPrefix(prefix)
         log("Listage du dossier: '\(targetPrefix)'")
 
         do {
@@ -264,11 +264,9 @@ struct CreateFolderIntent: AppIntent {
         log("Début CreateFolder. Site: \(site.name), Bucket: \(bucket)")
         let client = try S3ShortcutsHelper.getClient(for: site, bucket: bucket)
 
-        let prefix = pathPrefix ?? ""
-        // Assure que le préfixe finit par / si non vide
-        let cleanPrefix = (prefix.isEmpty || prefix.hasSuffix("/")) ? prefix : prefix + "/"
+        let prefix = S3ShortcutsHelper.cleanPrefix(pathPrefix)
+        let fullKey = S3ShortcutsHelper.cleanPrefix(prefix + newFolderName)
 
-        let fullKey = cleanPrefix + newFolderName + "/"
         log("Création du dossier: \(fullKey)")
 
         do {
@@ -353,27 +351,52 @@ struct DeleteObjectIntent: AppIntent {
     var bucket: String
 
     @Parameter(
+        title: "Dossier Parent (Préfixe)", description: "Le chemin du dossier parent (optionnel)")
+    var prefix: String?
+
+    @Parameter(
         title: "Nom du fichier (Clé)",
-        description: "Le chemin complet du fichier à supprimer",
+        description: "Le chemin complet ou le nom du fichier à supprimer",
         requestValueDialog: "Quel fichier voulez-vous supprimer ?")
     var key: String
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Supprimer \(\.$key) dans \(\.$bucket) sur \(\.$site)")
+        Summary("Supprimer \(\.$key) dans \(\.$bucket) sur \(\.$site)") {
+            \.$prefix
+        }
     }
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
         log("Début de DeleteObjectIntent pour le site '\(site.name)' et bucket '\(bucket)'")
         let client = try S3ShortcutsHelper.getClient(for: site, bucket: bucket)
-        log("Tentative de suppression de: '\(key)'")
+
+        // Construction du chemin complet via le helper
+        let folderPrefix = S3ShortcutsHelper.cleanPrefix(prefix)
+        let fullKey = S3ShortcutsHelper.cleanPrefix(folderPrefix + key)
+
+        log(
+            "Tentative de suppression de: '\(fullKey)' (Prefix: '\(prefix ?? "nil")', Key: '\(key)')"
+        )
 
         do {
-            try await client.deleteObject(key: key)
+            // VERIFICATION : Le fichier existe-t-il ?
+            log("Vérification existence fichier...")
+            _ = try await client.headObject(key: fullKey)
+
+            // Si on passe ici, le fichier existe
+            try await client.deleteObject(key: fullKey)
+
             log("Suppression réussie")
-            return .result(value: "Fichier '\(key)' supprimé avec succès.")
+            return .result(value: "Fichier '\(fullKey)' supprimé avec succès.")
         } catch {
             log("Erreur lors de la suppression: \(error.localizedDescription)")
+
+            // Si c'est une erreur 404 (Not Found) venant de headObject ou deleteObject
+            if let s3Error = error as? S3Error, case .apiError(let code, _) = s3Error, code == 404 {
+                throw SimpleError(message: "Le fichier '\(fullKey)' n'existe pas.")
+            }
+
             throw SimpleError(
                 message: "Erreur lors de la suppression : \(error.localizedDescription)")
         }
@@ -467,6 +490,29 @@ struct S3ShortcutsHelper {
             endpoint: site.endpoint,
             usePathStyle: site.usePathStyle
         )
+    }
+
+    /// Nettoie et normalise un préfixe de dossier.
+    /// - Convertit nil en ""
+    /// - Enlève le "./" initial
+    /// - Remplace "." par ""
+    /// - Ajoute un "/" final si non vide
+    static func cleanPrefix(_ prefix: String?) -> String {
+        var p = prefix ?? ""
+
+        if p.hasPrefix("./") {
+            p = String(p.dropFirst(2))
+        }
+
+        if p == "." {
+            p = ""
+        }
+
+        if !p.isEmpty && !p.hasSuffix("/") {
+            p += "/"
+        }
+
+        return p
     }
 }
 
@@ -674,8 +720,13 @@ struct ListFoldersIntent: AppIntent {
         let client = try S3ShortcutsHelper.getClient(for: site, bucket: bucket)
 
         do {
-            let folders = try await client.listFolders(
-                prefix: prefix ?? "", recursive: recursive)
+            let targetPrefix = S3ShortcutsHelper.cleanPrefix(prefix)
+            var folders = try await client.listFolders(
+                prefix: targetPrefix, recursive: recursive)
+
+            let currentFolder = targetPrefix.isEmpty ? "." : targetPrefix
+            folders.insert(currentFolder, at: 0)
+
             log("Succès: \(folders.count) dossiers trouvés")
             return .result(value: folders)
         } catch {
