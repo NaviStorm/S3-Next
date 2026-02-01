@@ -634,7 +634,7 @@ struct DownloadFileIntent: AppIntent {
 
         do {
             // 1. Récupération des données brutes
-            let (data, metadata) = try await client.getObject(key: key)
+            let (data, _) = try await client.getObject(key: key)
             log("Fichier téléchargé : \(data.count) octets")
 
             var finalData = data
