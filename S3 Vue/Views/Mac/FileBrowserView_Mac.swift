@@ -480,8 +480,9 @@
                 } message: {
                     Text(
                         deleteIsFolder
-                            ? "Tout le contenu du dossier sera supprimé."
-                            : "Cette action est irréversible.")
+                            ? "Voulez-vous supprimer le dossier \"\(displayName(for: deleteItemKey))\" et tout son contenu ? Cette action est irréversible."
+                            : "Voulez-vous supprimer \"\(displayName(for: deleteItemKey))\" ? Cette action est irréversible."
+                    )
                 }
                 .fileImporter(
                     isPresented: $showingFileImporter, allowedContentTypes: [.item],
