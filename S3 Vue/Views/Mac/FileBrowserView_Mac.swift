@@ -151,7 +151,18 @@
                         } else if appState.bucket.isEmpty {
                             noBucketView
                         } else {
-                            Table(appState.objects, selection: $selectedObjectIds) {
+                            Table(
+                                appState.objects,
+                                selection: Binding(
+                                    get: {
+                                        if let tid = dropTargetId {
+                                            return selectedObjectIds.union([tid])
+                                        }
+                                        return selectedObjectIds
+                                    },
+                                    set: { selectedObjectIds = $0 }
+                                )
+                            ) {
                                 TableColumn("Nom") { object in
                                     FileTableCellWrapper(
                                         object: object, appState: appState,
@@ -173,6 +184,7 @@
                                     ) {
                                         Text(getType(for: object.key, isFolder: object.isFolder))
                                             .foregroundColor(.secondary)
+                                            .padding(.horizontal, 12)
                                     }
                                 }
                                 .width(min: 80, ideal: 100)
@@ -187,6 +199,7 @@
                                                 date: .abbreviated, time: .shortened)
                                         )
                                         .foregroundColor(.secondary)
+                                        .padding(.horizontal, 12)
                                     }
                                 }
                                 .width(min: 150, ideal: 180)
@@ -198,6 +211,7 @@
                                     ) {
                                         Text(object.isFolder ? "--" : formatBytes(object.size))
                                             .foregroundColor(.secondary)
+                                            .padding(.horizontal, 12)
                                     }
                                 }
                                 .width(min: 80, ideal: 100)
@@ -722,6 +736,7 @@
                     .strikethrough(isRemoved(object.key))
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
+            .padding(.horizontal, 12)
             .contentShape(Rectangle())
             .onDrag {
                 let filename = displayName(for: object.key)
@@ -780,49 +795,50 @@
         let content: () -> Content
 
         var body: some View {
-            content()
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .background(dropTargetId == object.id ? Color.blue.opacity(0.2) : Color.clear)
-                .contentShape(Rectangle())
-                .onDrop(
-                    of: [.fileURL],
-                    isTargeted: Binding(
-                        get: { dropTargetId == object.id },
-                        set: { targeted in
-                            if targeted {
-                                if object.isFolder && object.key != ".." {
-                                    dropTargetId = object.id
-                                }
-                            } else if dropTargetId == object.id {
-                                dropTargetId = nil
+            ZStack(alignment: .leading) {
+                content()
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onDrop(
+                of: [.fileURL],
+                isTargeted: Binding(
+                    get: { dropTargetId == object.id },
+                    set: { targeted in
+                        if targeted {
+                            if object.isFolder && object.key != ".." {
+                                dropTargetId = object.id
                             }
+                        } else if dropTargetId == object.id {
+                            dropTargetId = nil
                         }
-                    )
-                ) { providers in
-                    guard object.isFolder, object.key != ".." else { return false }
-                    for provider in providers {
-                        _ = provider.loadObject(ofClass: URL.self) { url, error in
-                            if let url = url {
-                                DispatchQueue.main.async {
-                                    var isDir: ObjCBool = false
-                                    if FileManager.default.fileExists(
-                                        atPath: url.path, isDirectory: &isDir)
-                                    {
-                                        if isDir.boolValue {
-                                            appState.uploadFolder(
-                                                url: url, folderPrefix: object.key)
-                                        } else {
-                                            appState.uploadFile(url: url, folderPrefix: object.key)
-                                        }
+                    }
+                )
+            ) { providers in
+                guard object.isFolder, object.key != ".." else { return false }
+                for provider in providers {
+                    _ = provider.loadObject(ofClass: URL.self) { url, error in
+                        if let url = url {
+                            DispatchQueue.main.async {
+                                var isDir: ObjCBool = false
+                                if FileManager.default.fileExists(
+                                    atPath: url.path, isDirectory: &isDir)
+                                {
+                                    if isDir.boolValue {
+                                        appState.uploadFolder(
+                                            url: url, folderPrefix: object.key)
+                                    } else {
+                                        appState.uploadFile(url: url, folderPrefix: object.key)
                                     }
                                 }
                             }
                         }
                     }
-                    return true
                 }
+                return true
+            }
         }
     }
 
