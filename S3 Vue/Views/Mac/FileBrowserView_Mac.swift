@@ -150,7 +150,11 @@
                         } else {
                             Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
-                                    nameCell(object: object, appState: appState)
+                                    FileRowNameCell(
+                                        object: object,
+                                        appState: appState,
+                                        selectedObjectIds: $selectedObjectIds
+                                    )
                                 }
                                 .width(min: 200, ideal: 300)
 
@@ -672,8 +676,17 @@
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(NSColor.windowBackgroundColor))
         }
-        @ViewBuilder
-        func nameCell(object: S3Object, appState: S3AppState) -> some View {
+        // nameCell removed, replaced by FileRowNameCell struct
+    }
+
+    struct FileRowNameCell: View {
+        let object: S3Object
+        @ObservedObject var appState: S3AppState
+        @Binding var selectedObjectIds: Set<S3Object.ID>
+
+        @State private var isTargeted = false
+
+        var body: some View {
             HStack {
                 Image(
                     systemName: object.key == ".."
@@ -689,33 +702,26 @@
                     .strikethrough(isRemoved(object.key))
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
+            .background(isTargeted ? Color.blue.opacity(0.2) : Color.clear)
+            .cornerRadius(4)
             .onDrag {
-                // Determine source URL for the drag
-                // On macOS, dragging to Finder usually triggers a download if we provide a file URL.
-                // For S3, we download to a temporary location first.
                 let filename = displayName(for: object.key)
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
                     filename)
-
-                // If the file is not already there, we trigger the download.
-                // NOTE: Drag & Drop in SwiftUI on macOS works best if the file already exists or via NSFilePromiseProvider.
-                // As a first step, we provide the URL.
                 if !object.isFolder {
                     appState.downloadFile(key: object.key)
                 }
-
                 return NSItemProvider(
                     item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
             }
-            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
                 guard object.isFolder, object.key != ".." else { return false }
-
-                let dispatchGroup = DispatchGroup()
                 for provider in providers {
-                    dispatchGroup.enter()
                     _ = provider.loadObject(ofClass: URL.self) { url, error in
-                        defer { dispatchGroup.leave() }
                         if let url = url {
                             DispatchQueue.main.async {
                                 var isDir: ObjCBool = false
@@ -735,28 +741,42 @@
                 return true
             }
             .onTapGesture(count: 2) {
-                appState.appendLog("DEBUG: Double tap detected on \(object.key)")
-                if isRemoved(object.key) {
-                    appState.appendLog("DEBUG: Object is removed, ignoring")
-                    return
-                }
+                if isRemoved(object.key) { return }
                 if object.key == ".." {
-                    appState.appendLog("DEBUG: Navigating back")
                     appState.navigateBack()
                 } else if object.isFolder {
-                    appState.appendLog("DEBUG: Navigating to folder \(object.key)")
-                    appState.navigateTo(
-                        folder: displayName(for: object.key))
+                    appState.navigateTo(folder: displayName(for: object.key))
                 } else {
-                    appState.appendLog("DEBUG: Downloading file \(object.key)")
-                    // For files, download/open
                     appState.downloadFile(key: object.key)
                 }
             }
             .onTapGesture(count: 1) {
-                appState.appendLog("DEBUG: Single tap detected on \(object.key)")
                 selectedObjectIds = [object.id]
             }
+        }
+
+        private func displayName(for key: String) -> String {
+            if key == ".." { return "Dossier parent" }
+            let prefix = appState.currentPath.joined(separator: "/")
+            var name = key
+            let fullPrefix = prefix.isEmpty ? "" : prefix + "/"
+            if !prefix.isEmpty, name.hasPrefix(fullPrefix) {
+                name = String(name.dropFirst(fullPrefix.count))
+            }
+            if name.hasSuffix("/") { name = String(name.dropLast()) }
+            return name
+        }
+
+        private func isRemoved(_ key: String) -> Bool {
+            return appState.activeComparison?.removed.contains(where: { $0.key == key }) ?? false
+        }
+
+        private func diffColor(for key: String) -> Color? {
+            guard let diff = appState.activeComparison else { return nil }
+            if diff.added.contains(where: { $0.key == key }) { return .green }
+            if diff.modified.contains(where: { $0.key == key }) { return .orange }
+            if diff.removed.contains(where: { $0.key == key }) { return .red }
+            return nil
         }
     }
 
