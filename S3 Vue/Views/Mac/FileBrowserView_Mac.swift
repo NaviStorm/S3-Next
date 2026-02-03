@@ -33,6 +33,9 @@
         // Cache for file type descriptions
         @State private var typeCache: [String: String] = [:]
 
+        // Track folder being hovered during drop for full-row highlighting
+        @State private var dropTargetId: S3Object.ID? = nil
+
         // Computed property to maintain backward compatibility with inspector logic
         var selectedObject: S3Object? {
             guard let id = selectedObjectIds.first else { return nil }
@@ -150,32 +153,52 @@
                         } else {
                             Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
-                                    FileRowNameCell(
-                                        object: object,
-                                        appState: appState,
-                                        selectedObjectIds: $selectedObjectIds
-                                    )
+                                    FileTableCellWrapper(
+                                        object: object, appState: appState,
+                                        dropTargetId: $dropTargetId
+                                    ) {
+                                        FileRowNameCell(
+                                            object: object,
+                                            appState: appState,
+                                            selectedObjectIds: $selectedObjectIds
+                                        )
+                                    }
                                 }
                                 .width(min: 200, ideal: 300)
 
                                 TableColumn("Type") { object in
-                                    Text(getType(for: object.key, isFolder: object.isFolder))
-                                        .foregroundColor(.secondary)
+                                    FileTableCellWrapper(
+                                        object: object, appState: appState,
+                                        dropTargetId: $dropTargetId
+                                    ) {
+                                        Text(getType(for: object.key, isFolder: object.isFolder))
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                                 .width(min: 80, ideal: 100)
 
                                 TableColumn("Date Modification") { object in
-                                    Text(
-                                        object.lastModified.formatted(
-                                            date: .abbreviated, time: .shortened)
-                                    )
-                                    .foregroundColor(.secondary)
+                                    FileTableCellWrapper(
+                                        object: object, appState: appState,
+                                        dropTargetId: $dropTargetId
+                                    ) {
+                                        Text(
+                                            object.lastModified.formatted(
+                                                date: .abbreviated, time: .shortened)
+                                        )
+                                        .foregroundColor(.secondary)
+                                    }
                                 }
                                 .width(min: 150, ideal: 180)
 
                                 TableColumn("Taille") { object in
-                                    Text(object.isFolder ? "--" : formatBytes(object.size))
-                                        .foregroundColor(.secondary)
+                                    FileTableCellWrapper(
+                                        object: object, appState: appState,
+                                        dropTargetId: $dropTargetId
+                                    ) {
+                                        Text(object.isFolder ? "--" : formatBytes(object.size))
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                                 .width(min: 80, ideal: 100)
                             }
@@ -683,9 +706,6 @@
         let object: S3Object
         @ObservedObject var appState: S3AppState
         @Binding var selectedObjectIds: Set<S3Object.ID>
-
-        @State private var isTargeted = false
-
         var body: some View {
             HStack {
                 Image(
@@ -702,12 +722,7 @@
                     .strikethrough(isRemoved(object.key))
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .background(isTargeted ? Color.blue.opacity(0.2) : Color.clear)
-            .cornerRadius(4)
             .onDrag {
                 let filename = displayName(for: object.key)
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -717,28 +732,6 @@
                 }
                 return NSItemProvider(
                     item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
-            }
-            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-                guard object.isFolder, object.key != ".." else { return false }
-                for provider in providers {
-                    _ = provider.loadObject(ofClass: URL.self) { url, error in
-                        if let url = url {
-                            DispatchQueue.main.async {
-                                var isDir: ObjCBool = false
-                                if FileManager.default.fileExists(
-                                    atPath: url.path, isDirectory: &isDir)
-                                {
-                                    if isDir.boolValue {
-                                        appState.uploadFolder(url: url, folderPrefix: object.key)
-                                    } else {
-                                        appState.uploadFile(url: url, folderPrefix: object.key)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                return true
             }
             .onTapGesture(count: 2) {
                 if isRemoved(object.key) { return }
@@ -777,6 +770,59 @@
             if diff.modified.contains(where: { $0.key == key }) { return .orange }
             if diff.removed.contains(where: { $0.key == key }) { return .red }
             return nil
+        }
+    }
+
+    struct FileTableCellWrapper<Content: View>: View {
+        let object: S3Object
+        @ObservedObject var appState: S3AppState
+        @Binding var dropTargetId: S3Object.ID?
+        let content: () -> Content
+
+        var body: some View {
+            content()
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .background(dropTargetId == object.id ? Color.blue.opacity(0.2) : Color.clear)
+                .contentShape(Rectangle())
+                .onDrop(
+                    of: [.fileURL],
+                    isTargeted: Binding(
+                        get: { dropTargetId == object.id },
+                        set: { targeted in
+                            if targeted {
+                                if object.isFolder && object.key != ".." {
+                                    dropTargetId = object.id
+                                }
+                            } else if dropTargetId == object.id {
+                                dropTargetId = nil
+                            }
+                        }
+                    )
+                ) { providers in
+                    guard object.isFolder, object.key != ".." else { return false }
+                    for provider in providers {
+                        _ = provider.loadObject(ofClass: URL.self) { url, error in
+                            if let url = url {
+                                DispatchQueue.main.async {
+                                    var isDir: ObjCBool = false
+                                    if FileManager.default.fileExists(
+                                        atPath: url.path, isDirectory: &isDir)
+                                    {
+                                        if isDir.boolValue {
+                                            appState.uploadFolder(
+                                                url: url, folderPrefix: object.key)
+                                        } else {
+                                            appState.uploadFile(url: url, folderPrefix: object.key)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return true
+                }
         }
     }
 
