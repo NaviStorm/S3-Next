@@ -151,18 +151,7 @@
                         } else if appState.bucket.isEmpty {
                             noBucketView
                         } else {
-                            Table(
-                                appState.objects,
-                                selection: Binding(
-                                    get: {
-                                        if let tid = dropTargetId {
-                                            return selectedObjectIds.union([tid])
-                                        }
-                                        return selectedObjectIds
-                                    },
-                                    set: { selectedObjectIds = $0 }
-                                )
-                            ) {
+                            Table(appState.objects, selection: $selectedObjectIds) {
                                 TableColumn("Nom") { object in
                                     FileTableCellWrapper(
                                         object: object, appState: appState,
@@ -209,7 +198,7 @@
                                         object: object, appState: appState,
                                         dropTargetId: $dropTargetId
                                     ) {
-                                        Text(object.isFolder ? "--" : formatBytes(object.size))
+                                        Text(object.isFolder ? " " : formatBytes(object.size))
                                             .foregroundColor(.secondary)
                                             .padding(.horizontal, 12)
                                     }
@@ -737,7 +726,29 @@
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
             .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
+            .simultaneousGesture(
+                SimultaneousGesture(
+                    TapGesture(count: 1),
+                    TapGesture(count: 2)
+                ).onEnded { value in
+                    if value.second != nil {
+                        print("DEBUG: Double Click on \(object.key)")
+                        if isRemoved(object.key) { return }
+                        if object.key == ".." {
+                            appState.navigateBack()
+                        } else if object.isFolder {
+                            appState.navigateTo(folder: displayName(for: object.key))
+                        } else {
+                            appState.downloadFile(key: object.key)
+                        }
+                    } else {
+                        print("DEBUG: Single Click on \(object.key)")
+                        selectedObjectIds = [object.id]
+                    }
+                }
+            )
             .onDrag {
                 let filename = displayName(for: object.key)
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -747,19 +758,6 @@
                 }
                 return NSItemProvider(
                     item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
-            }
-            .onTapGesture(count: 2) {
-                if isRemoved(object.key) { return }
-                if object.key == ".." {
-                    appState.navigateBack()
-                } else if object.isFolder {
-                    appState.navigateTo(folder: displayName(for: object.key))
-                } else {
-                    appState.downloadFile(key: object.key)
-                }
-            }
-            .onTapGesture(count: 1) {
-                selectedObjectIds = [object.id]
             }
         }
 
@@ -778,7 +776,6 @@
         private func isRemoved(_ key: String) -> Bool {
             return appState.activeComparison?.removed.contains(where: { $0.key == key }) ?? false
         }
-
         private func diffColor(for key: String) -> Color? {
             guard let diff = appState.activeComparison else { return nil }
             if diff.added.contains(where: { $0.key == key }) { return .green }
@@ -796,12 +793,16 @@
 
         var body: some View {
             ZStack(alignment: .leading) {
+                if dropTargetId == object.id {
+                    Color.blue.opacity(0.3)
+                        .padding(.horizontal, -30)
+                        .allowsHitTesting(false)  // Permet de ne pas intercepter le clic
+                }
                 content()
-                    .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+            .frame(height: 24)
+            .clipped()
             .onDrop(
                 of: [.fileURL],
                 isTargeted: Binding(
@@ -827,8 +828,7 @@
                                     atPath: url.path, isDirectory: &isDir)
                                 {
                                     if isDir.boolValue {
-                                        appState.uploadFolder(
-                                            url: url, folderPrefix: object.key)
+                                        appState.uploadFolder(url: url, folderPrefix: object.key)
                                     } else {
                                         appState.uploadFile(url: url, folderPrefix: object.key)
                                     }
