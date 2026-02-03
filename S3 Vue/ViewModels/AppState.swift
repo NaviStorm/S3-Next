@@ -870,18 +870,20 @@ public final class S3AppState: ObservableObject {
         }
     }
 
-    func uploadFile(url: URL) {
+    func uploadFile(url: URL, folderPrefix: String? = nil) {
         guard let client = client else { return }
-        let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        let prefix =
+            folderPrefix ?? (currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/")
         let key = prefix + url.lastPathComponent
 
         transferManager.uploadFile(
             url: url, targetKey: key, client: client, keyAlias: self.selectedEncryptionAlias)
     }
 
-    func uploadFolder(url: URL) {
+    func uploadFolder(url: URL, folderPrefix: String? = nil) {
         guard let client = client else { return }
-        let s3Prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        let s3Prefix =
+            folderPrefix ?? (currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/")
         let targetPrefix = s3Prefix + url.lastPathComponent + "/"
 
         transferManager.uploadFolder(

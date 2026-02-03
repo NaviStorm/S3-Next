@@ -175,6 +175,30 @@
                                 }
                                 .width(min: 80, ideal: 100)
                             }
+                            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                                let dispatchGroup = DispatchGroup()
+                                for provider in providers {
+                                    dispatchGroup.enter()
+                                    _ = provider.loadObject(ofClass: URL.self) { url, error in
+                                        defer { dispatchGroup.leave() }
+                                        if let url = url {
+                                            DispatchQueue.main.async {
+                                                var isDir: ObjCBool = false
+                                                if FileManager.default.fileExists(
+                                                    atPath: url.path, isDirectory: &isDir)
+                                                {
+                                                    if isDir.boolValue {
+                                                        appState.uploadFolder(url: url)
+                                                    } else {
+                                                        appState.uploadFile(url: url)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return true
+                            }
                         }
 
                         // Status Bar
@@ -666,6 +690,50 @@
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
             .contentShape(Rectangle())
+            .onDrag {
+                // Determine source URL for the drag
+                // On macOS, dragging to Finder usually triggers a download if we provide a file URL.
+                // For S3, we download to a temporary location first.
+                let filename = displayName(for: object.key)
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    filename)
+
+                // If the file is not already there, we trigger the download.
+                // NOTE: Drag & Drop in SwiftUI on macOS works best if the file already exists or via NSFilePromiseProvider.
+                // As a first step, we provide the URL.
+                if !object.isFolder {
+                    appState.downloadFile(key: object.key)
+                }
+
+                return NSItemProvider(
+                    item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
+            }
+            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                guard object.isFolder, object.key != ".." else { return false }
+
+                let dispatchGroup = DispatchGroup()
+                for provider in providers {
+                    dispatchGroup.enter()
+                    _ = provider.loadObject(ofClass: URL.self) { url, error in
+                        defer { dispatchGroup.leave() }
+                        if let url = url {
+                            DispatchQueue.main.async {
+                                var isDir: ObjCBool = false
+                                if FileManager.default.fileExists(
+                                    atPath: url.path, isDirectory: &isDir)
+                                {
+                                    if isDir.boolValue {
+                                        appState.uploadFolder(url: url, folderPrefix: object.key)
+                                    } else {
+                                        appState.uploadFile(url: url, folderPrefix: object.key)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return true
+            }
             .onTapGesture(count: 2) {
                 appState.appendLog("DEBUG: Double tap detected on \(object.key)")
                 if isRemoved(object.key) {
