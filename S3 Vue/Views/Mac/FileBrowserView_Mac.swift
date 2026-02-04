@@ -8,6 +8,7 @@
         @EnvironmentObject var appState: S3AppState
         @Environment(\.openWindow) var openWindow
         @State private var selectedObjectIds: Set<S3Object.ID> = []
+        @FocusState private var isTableFocused: Bool
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
         @State private var showingFileImporter = false
@@ -213,7 +214,11 @@
                     Table(appState.objects, selection: $selectedObjectIds) {
                         TableColumn("Nom") { object in
                             FileRowNameCell(
-                                object: object, appState: appState, selection: $selectedObjectIds)
+                                object: object,
+                                appState: appState,
+                                selection: $selectedObjectIds,
+                                isTableFocused: $isTableFocused
+                            )
                         }.width(min: 200, ideal: 300)
 
                         TableColumn("Type") { object in
@@ -233,6 +238,7 @@
                                 .foregroundColor(.secondary).padding(.horizontal, 12)
                         }.width(min: 80, ideal: 100)
                     }
+                    .focused($isTableFocused)
                     .focusable()
                     .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
                         for provider in providers {
@@ -409,6 +415,7 @@
         let object: S3Object
         @ObservedObject var appState: S3AppState
         @Binding var selection: Set<S3Object.ID>
+        @FocusState.Binding var isTableFocused: Bool
 
         var body: some View {
             HStack {
@@ -440,6 +447,7 @@
             .simultaneousGesture(
                 TapGesture(count: 1).onEnded {
                     // Force selection manually to bypass SwiftUI Table bugs
+                    isTableFocused = true
                     let modifiers = NSEvent.modifierFlags
                     if modifiers.contains(.command) {
                         if selection.contains(object.id) {
@@ -460,6 +468,29 @@
                 if !object.isFolder { appState.downloadFile(key: object.key) }
                 return NSItemProvider(
                     item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
+            }
+            .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
+                guard object.isFolder else { return false }
+                let folderPrefix = object.key + (object.key.hasSuffix("/") ? "" : "/")
+                for provider in providers {
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        if let url = url {
+                            DispatchQueue.main.async {
+                                var isDir: ObjCBool = false
+                                if FileManager.default.fileExists(
+                                    atPath: url.path, isDirectory: &isDir)
+                                {
+                                    if isDir.boolValue {
+                                        appState.uploadFolder(url: url, folderPrefix: folderPrefix)
+                                    } else {
+                                        appState.uploadFile(url: url, folderPrefix: folderPrefix)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return true
             }
         }
 
