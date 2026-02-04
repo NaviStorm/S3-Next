@@ -10,6 +10,7 @@
         @State private var selectedObjectIds: Set<S3Object.ID> = []
         @FocusState private var isTableFocused: Bool
         @State private var targetedObjectId: S3Object.ID? = nil
+        @State private var isDraggingOverList = false
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
         @State private var showingFileImporter = false
@@ -214,51 +215,62 @@
                 } else {
                     Table(appState.objects, selection: $selectedObjectIds) {
                         TableColumn("Nom") { object in
-                            FileRowNameCell(
-                                object: object,
-                                appState: appState,
-                                selection: $selectedObjectIds,
-                                isTableFocused: $isTableFocused,
-                                targetedObjectId: $targetedObjectId
-                            )
+                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
+                            {
+                                FileRowNameCell(
+                                    object: object,
+                                    appState: appState,
+                                    selection: $selectedObjectIds,
+                                    isTableFocused: $isTableFocused,
+                                    targetedObjectId: $targetedObjectId
+                                )
+                            }
                         }.width(min: 200, ideal: 300)
 
                         TableColumn("Type") { object in
-                            rowWrapper(object: object) {
+                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
+                            {
                                 Text(getType(for: object.key, isFolder: object.isFolder))
+                                    .foregroundColor(
+                                        targetedObjectId == object.id ? .white : .secondary)
                             }
                         }.width(min: 80, ideal: 100)
 
                         TableColumn("Date Modification") { object in
-                            rowWrapper(object: object) {
+                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
+                            {
                                 Text(
                                     object.lastModified.formatted(
                                         date: .abbreviated, time: .shortened)
                                 )
+                                .foregroundColor(
+                                    targetedObjectId == object.id ? .white : .secondary)
                             }
                         }.width(min: 150, ideal: 180)
 
                         TableColumn("Taille") { object in
-                            rowWrapper(object: object) {
+                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
+                            {
                                 Text(object.isFolder ? " " : formatBytes(object.size))
+                                    .foregroundColor(
+                                        targetedObjectId == object.id ? .white : .secondary)
                             }
                         }.width(min: 80, ideal: 100)
                     }
                     .focused($isTableFocused)
                     .focusable()
-                    .onChange(of: targetedObjectId) { id in
-                        if id != nil {
+                    .onChange(of: isDraggingOverList) { dragging in
+                        if dragging {
                             isTableFocused = false
                         } else {
-                            // Delay restoring focus to avoid flickering when moving between folders
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                if targetedObjectId == nil {
-                                    isTableFocused = true
-                                }
+                            // Restore focus only if not hovering a specific folder
+                            if targetedObjectId == nil {
+                                isTableFocused = true
                             }
                         }
                     }
-                    .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
+                    .onDrop(of: [UTType.fileURL], isTargeted: $isDraggingOverList) {
+                        providers in
                         for provider in providers {
                             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                                 if let url = url {
@@ -430,14 +442,39 @@
 
         @ViewBuilder
         func rowWrapper(object: S3Object, content: () -> some View) -> some View {
+            let isTargeted = targetedObjectId == object.id
             content()
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .foregroundColor(.secondary)
+                .foregroundColor(isTargeted ? .white : .secondary)
                 .background(
-                    targetedObjectId == object.id
-                        ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear
+                    isTargeted ? Color(NSColor.selectedContentBackgroundColor) : Color.clear
                 )
+        }
+
+        struct RowCellWrapper<Content: View>: View {
+            let objectId: S3Object.ID
+            @Binding var targetedObjectId: S3Object.ID?
+            let content: Content
+
+            init(
+                objectId: S3Object.ID, targetedObjectId: Binding<S3Object.ID?>,
+                @ViewBuilder content: () -> Content
+            ) {
+                self.objectId = objectId
+                self._targetedObjectId = targetedObjectId
+                self.content = content()
+            }
+
+            var body: some View {
+                let isTargeted = targetedObjectId == objectId
+                content
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .background(
+                        isTargeted ? Color(NSColor.selectedContentBackgroundColor) : Color.clear
+                    )
+            }
         }
     }
 
@@ -450,28 +487,30 @@
         @State private var isTargeted = false
 
         var body: some View {
+            let isHovered = isTargeted || targetedObjectId == object.id
             HStack {
                 Image(
                     systemName: object.key == ".."
                         ? "arrow.up.circle.fill" : (object.isFolder ? "folder.fill" : "doc")
                 )
                 .foregroundColor(
-                    diffColor(for: object.key) ?? (object.isFolder ? .blue : .secondary))
+                    isHovered
+                        ? .white
+                        : (diffColor(for: object.key) ?? (object.isFolder ? .blue : .secondary))
+                )
                 Text(displayName(for: object.key))
                     .fontWeight(object.isFolder ? .medium : .regular)
                     .strikethrough(isRemoved(object.key))
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
-            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(
-                (isTargeted || targetedObjectId == object.id)
-                    ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear
-            )
+            .foregroundColor(isHovered ? .white : .primary)
             .contentShape(Rectangle())
             .onChange(of: isTargeted) { targeted in
                 if targeted {
                     targetedObjectId = object.id
+                    // Act like a simple click: select the hovered object to show details
+                    selection = [object.id]
                 } else if targetedObjectId == object.id {
                     targetedObjectId = nil
                 }
