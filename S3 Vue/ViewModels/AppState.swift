@@ -1002,8 +1002,14 @@ public final class S3AppState: ObservableObject {
     }
 
     func moveObject(sourceKey: String, destinationPrefix: String, isFolder: Bool) {
-        guard let client = client else { return }
+        guard let client = client else {
+            print("[MOVE-DEBUG] No client available")
+            return
+        }
         log("[MOVE] From: \(sourceKey) To Prefix: \(destinationPrefix)")
+        print(
+            "[MOVE-DEBUG] Parameters: sourceKey=\(sourceKey), destinationPrefix=\(destinationPrefix), isFolder=\(isFolder)"
+        )
 
         let fileName =
             sourceKey.hasSuffix("/")
@@ -1011,9 +1017,11 @@ public final class S3AppState: ObservableObject {
             : sourceKey.components(separatedBy: "/").last ?? ""
 
         let newKey = destinationPrefix + fileName + (isFolder ? "/" : "")
+        print("[MOVE-DEBUG] Computed newKey: \(newKey)")
 
         if sourceKey == newKey {
             log("[MOVE] Source and destination are same. Skipping.")
+            print("[MOVE-DEBUG] Source and destination are same (\(sourceKey)). Skipping.")
             return
         }
 

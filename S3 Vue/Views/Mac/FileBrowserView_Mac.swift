@@ -289,8 +289,54 @@
                             isTableFocused = true
                         }
                     }
-                    .onDrop(of: [UTType.fileURL], isTargeted: $isDraggingOverList) {
+                    .onDrop(of: [UTType.fileURL, UTType.s3Object], isTargeted: $isDraggingOverList)
+                    {
                         providers in
+                        print(
+                            "[DND-DEBUG] Table-level Drop triggered. Providers: \(providers.count)")
+
+                        // 1. Tenter le drag interne (S3 vers S3)
+                        if let s3Provider = providers.first(where: {
+                            $0.hasItemConformingToTypeIdentifier(UTType.s3Object.identifier)
+                        }) {
+                            print(
+                                "[DND-DEBUG] Table-level Internal S3 object detected. Handling drop to current folder."
+                            )
+                            _ = s3Provider.loadDataRepresentation(
+                                forTypeIdentifier: UTType.s3Object.identifier
+                            ) { data, error in
+                                if let error = error {
+                                    print(
+                                        "[DND-DEBUG] Table-level Load error: \(error.localizedDescription)"
+                                    )
+                                }
+                                if let data = data,
+                                    let sourceKey = String(data: data, encoding: .utf8)
+                                {
+                                    print("[DND-DEBUG] Table-level Source key loaded: \(sourceKey)")
+                                    DispatchQueue.main.async {
+                                        let key = sourceKey
+                                        // On déplace vers le dossier actuel (prefix)
+                                        let destinationPrefix =
+                                            appState.currentPath.joined(separator: "/")
+                                            + (appState.currentPath.isEmpty ? "" : "/")
+
+                                        print(
+                                            "[DND-DEBUG] Table-level Moving \(key) to \(destinationPrefix)"
+                                        )
+
+                                        // On utilise le fallback directement car on est au niveau table
+                                        appState.moveObject(
+                                            sourceKey: key,
+                                            destinationPrefix: destinationPrefix,
+                                            isFolder: key.hasSuffix("/"))
+                                    }
+                                }
+                            }
+                            return true
+                        }
+
+                        // 2. Fallback sur le drag externe (Finder vers S3)
                         for provider in providers {
                             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                                 if let url = url {
@@ -535,16 +581,35 @@
                     )
                     .onDrop(of: [UTType.fileURL, UTType.s3Object], isTargeted: $localIsTargeted) {
                         providers in
-                        guard object.isFolder else { return false }
+                        print(
+                            "[DND-DEBUG] Drop triggered on \(object.key). Providers: \(providers.count)"
+                        )
+                        for p in providers {
+                            print("[DND-DEBUG] Provider types: \(p.registeredTypeIdentifiers)")
+                        }
+
+                        guard object.isFolder else {
+                            print("[DND-DEBUG] Drop rejected: Target is not a folder")
+                            return false
+                        }
 
                         // 1. Tenter le drag interne (S3 vers S3)
                         if let s3Provider = providers.first(where: {
                             $0.hasItemConformingToTypeIdentifier(UTType.s3Object.identifier)
                         }) {
-                            _ = s3Provider.loadObject(ofClass: NSString.self) { item, _ in
-                                if let sourceKey = item as? NSString {
+                            print("[DND-DEBUG] Internal S3 object detected. Loading data...")
+                            _ = s3Provider.loadDataRepresentation(
+                                forTypeIdentifier: UTType.s3Object.identifier
+                            ) { data, error in
+                                if let error = error {
+                                    print("[DND-DEBUG] Load error: \(error.localizedDescription)")
+                                }
+                                if let data = data,
+                                    let sourceKey = String(data: data, encoding: .utf8)
+                                {
+                                    print("[DND-DEBUG] Source key loaded: \(sourceKey)")
                                     DispatchQueue.main.async {
-                                        let key = sourceKey as String
+                                        let key = sourceKey
                                         // On déplace vers le préfixe de ce dossier
                                         let destinationPrefix =
                                             object.key == ".."
@@ -552,6 +617,7 @@
                                                 + (appState.currentPath.count > 1 ? "/" : "")
                                             : object.key + (object.key.hasSuffix("/") ? "" : "/")
 
+                                        print("[DND-DEBUG] Moving \(key) to \(destinationPrefix)")
                                         // Trouver l'objet source pour savoir si c'est un dossier
                                         if let sourceObject = appState.objects.first(where: {
                                             $0.key == key
@@ -561,6 +627,9 @@
                                                 destinationPrefix: destinationPrefix,
                                                 isFolder: sourceObject.isFolder)
                                         } else {
+                                            print(
+                                                "[DND-DEBUG] Warning: sourceObject not found in list, using fallback"
+                                            )
                                             // Fallback: si l'objet n'est plus dans la liste (ex: après une recherche), on se fie au suffixe /
                                             appState.moveObject(
                                                 sourceKey: key,
@@ -568,9 +637,15 @@
                                                 isFolder: key.hasSuffix("/"))
                                         }
                                     }
+                                } else {
+                                    print("[DND-DEBUG] Failed to decode data to string.")
                                 }
                             }
                             return true
+                        } else {
+                            print(
+                                "[DND-DEBUG] No internal S3 object found in providers. Checking external files..."
+                            )
                         }
 
                         // 2. Fallback sur le drag externe (Finder vers S3)
@@ -598,6 +673,7 @@
                         return true
                     }
                     .onChange(of: localIsTargeted) { targeted in
+                        print("[DND-DEBUG] Row targeted changed to \(targeted) for \(object.key)")
                         if targeted {
                             targetedObjectId = object.id
                             // Sync selection instantly to show details
@@ -710,6 +786,7 @@
                 }
             )
             .onDrag {
+                print("[DND-DEBUG] Drag started for \(object.key)")
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
                     displayName(for: object.key))
                 if !object.isFolder { appState.downloadFile(key: object.key) }
@@ -720,7 +797,13 @@
                 provider.registerObject(tempURL as NSURL, visibility: .all)
 
                 // Pour l'interne (S3Next)
-                provider.registerObject(object.key as NSString, visibility: .ownProcess)
+                provider.registerDataRepresentation(
+                    forTypeIdentifier: UTType.s3Object.identifier, visibility: .all
+                ) { completion in
+                    print("[DND-DEBUG] Providing data for internal drag: \(object.key)")
+                    completion(object.key.data(using: .utf8), nil)
+                    return nil
+                }
 
                 return provider
             }
