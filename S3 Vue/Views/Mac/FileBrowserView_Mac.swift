@@ -416,6 +416,7 @@
         @ObservedObject var appState: S3AppState
         @Binding var selection: Set<S3Object.ID>
         @FocusState.Binding var isTableFocused: Bool
+        @State private var isTargeted = false
 
         var body: some View {
             HStack {
@@ -431,6 +432,8 @@
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
             .padding(.horizontal, 12)
+            .background(isTargeted ? Color.blue.opacity(0.2) : Color.clear)
+            .cornerRadius(4)
             .contentShape(Rectangle())
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
@@ -469,7 +472,7 @@
                 return NSItemProvider(
                     item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
             }
-            .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
+            .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted) { providers in
                 guard object.isFolder else { return false }
                 let folderPrefix = object.key + (object.key.hasSuffix("/") ? "" : "/")
                 for provider in providers {
