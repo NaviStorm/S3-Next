@@ -4,6 +4,10 @@
     import SwiftUI
     import UniformTypeIdentifiers
 
+    extension UTType {
+        static var s3Object = UTType(exportedAs: "com.s3next.s3.object", conformingTo: .data)
+    }
+
     struct FileBrowserView_Mac: View {
         @EnvironmentObject var appState: S3AppState
         @Environment(\.openWindow) var openWindow
@@ -529,8 +533,47 @@
                             }
                         }
                     )
-                    .onDrop(of: [UTType.fileURL], isTargeted: $localIsTargeted) { providers in
+                    .onDrop(of: [UTType.fileURL, UTType.s3Object], isTargeted: $localIsTargeted) {
+                        providers in
                         guard object.isFolder else { return false }
+
+                        // 1. Tenter le drag interne (S3 vers S3)
+                        if let s3Provider = providers.first(where: {
+                            $0.hasItemConformingToTypeIdentifier(UTType.s3Object.identifier)
+                        }) {
+                            _ = s3Provider.loadObject(ofClass: NSString.self) { item, _ in
+                                if let sourceKey = item as? NSString {
+                                    DispatchQueue.main.async {
+                                        let key = sourceKey as String
+                                        // On déplace vers le préfixe de ce dossier
+                                        let destinationPrefix =
+                                            object.key == ".."
+                                            ? appState.currentPath.dropLast().joined(separator: "/")
+                                                + (appState.currentPath.count > 1 ? "/" : "")
+                                            : object.key + (object.key.hasSuffix("/") ? "" : "/")
+
+                                        // Trouver l'objet source pour savoir si c'est un dossier
+                                        if let sourceObject = appState.objects.first(where: {
+                                            $0.key == key
+                                        }) {
+                                            appState.moveObject(
+                                                sourceKey: key,
+                                                destinationPrefix: destinationPrefix,
+                                                isFolder: sourceObject.isFolder)
+                                        } else {
+                                            // Fallback: si l'objet n'est plus dans la liste (ex: après une recherche), on se fie au suffixe /
+                                            appState.moveObject(
+                                                sourceKey: key,
+                                                destinationPrefix: destinationPrefix,
+                                                isFolder: key.hasSuffix("/"))
+                                        }
+                                    }
+                                }
+                            }
+                            return true
+                        }
+
+                        // 2. Fallback sur le drag externe (Finder vers S3)
                         let folderPrefix = object.key + (object.key.hasSuffix("/") ? "" : "/")
                         for provider in providers {
                             _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -561,23 +604,27 @@
                             selection = [object.id]
 
                             // SPRING LOADING: Ouvrir le dossier si on reste dessus
-                            if object.isFolder && object.key != ".." {
+                            if object.isFolder {
                                 springLoadingTask?.cancel()
                                 springLoadingTask = Task {
                                     try? await Task.sleep(nanoseconds: 1_200_000_000)  // 1.2s
                                     if !Task.isCancelled {
                                         await MainActor.run {
-                                            // Extraire le nom du dossier pour la navigation
-                                            var folderName = object.key
-                                            if folderName.hasSuffix("/") {
-                                                folderName = String(folderName.dropLast())
+                                            if object.key == ".." {
+                                                appState.navigateBack()
+                                            } else {
+                                                // Extraire le nom du dossier pour la navigation
+                                                var folderName = object.key
+                                                if folderName.hasSuffix("/") {
+                                                    folderName = String(folderName.dropLast())
+                                                }
+                                                if let lastSlash = folderName.lastIndex(of: "/") {
+                                                    folderName = String(
+                                                        folderName[
+                                                            folderName.index(after: lastSlash)...])
+                                                }
+                                                appState.navigateTo(folder: folderName)
                                             }
-                                            if let lastSlash = folderName.lastIndex(of: "/") {
-                                                folderName = String(
-                                                    folderName[
-                                                        folderName.index(after: lastSlash)...])
-                                            }
-                                            appState.navigateTo(folder: folderName)
                                         }
                                     }
                                 }
@@ -666,8 +713,16 @@
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(
                     displayName(for: object.key))
                 if !object.isFolder { appState.downloadFile(key: object.key) }
-                return NSItemProvider(
-                    item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
+
+                let provider = NSItemProvider()
+
+                // Pour le Finder
+                provider.registerObject(tempURL as NSURL, visibility: .all)
+
+                // Pour l'interne (S3Next)
+                provider.registerObject(object.key as NSString, visibility: .ownProcess)
+
+                return provider
             }
         }
 
