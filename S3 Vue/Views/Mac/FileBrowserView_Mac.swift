@@ -9,6 +9,7 @@
         @Environment(\.openWindow) var openWindow
         @State private var selectedObjectIds: Set<S3Object.ID> = []
         @FocusState private var isTableFocused: Bool
+        @State private var targetedObjectId: S3Object.ID? = nil
         @State private var showingCreateFolder = false
         @State private var newFolderName = ""
         @State private var showingFileImporter = false
@@ -217,29 +218,46 @@
                                 object: object,
                                 appState: appState,
                                 selection: $selectedObjectIds,
-                                isTableFocused: $isTableFocused
+                                isTableFocused: $isTableFocused,
+                                targetedObjectId: $targetedObjectId
                             )
                         }.width(min: 200, ideal: 300)
 
                         TableColumn("Type") { object in
-                            Text(getType(for: object.key, isFolder: object.isFolder))
-                                .foregroundColor(.secondary).padding(.horizontal, 12)
+                            rowWrapper(object: object) {
+                                Text(getType(for: object.key, isFolder: object.isFolder))
+                            }
                         }.width(min: 80, ideal: 100)
 
                         TableColumn("Date Modification") { object in
-                            Text(
-                                object.lastModified.formatted(date: .abbreviated, time: .shortened)
-                            )
-                            .foregroundColor(.secondary).padding(.horizontal, 12)
+                            rowWrapper(object: object) {
+                                Text(
+                                    object.lastModified.formatted(
+                                        date: .abbreviated, time: .shortened)
+                                )
+                            }
                         }.width(min: 150, ideal: 180)
 
                         TableColumn("Taille") { object in
-                            Text(object.isFolder ? " " : formatBytes(object.size))
-                                .foregroundColor(.secondary).padding(.horizontal, 12)
+                            rowWrapper(object: object) {
+                                Text(object.isFolder ? " " : formatBytes(object.size))
+                            }
                         }.width(min: 80, ideal: 100)
                     }
                     .focused($isTableFocused)
                     .focusable()
+                    .onChange(of: targetedObjectId) { id in
+                        if id != nil {
+                            isTableFocused = false
+                        } else {
+                            // Delay restoring focus to avoid flickering when moving between folders
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                if targetedObjectId == nil {
+                                    isTableFocused = true
+                                }
+                            }
+                        }
+                    }
                     .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
                         for provider in providers {
                             _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -409,6 +427,18 @@
             try? FileManager.default.removeItem(at: tempFile)
             return desc ?? UTType(filenameExtension: ext)?.localizedDescription ?? ext.uppercased()
         }
+
+        @ViewBuilder
+        func rowWrapper(object: S3Object, content: () -> some View) -> some View {
+            content()
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .foregroundColor(.secondary)
+                .background(
+                    targetedObjectId == object.id
+                        ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear
+                )
+        }
     }
 
     struct FileRowNameCell: View {
@@ -416,6 +446,7 @@
         @ObservedObject var appState: S3AppState
         @Binding var selection: Set<S3Object.ID>
         @FocusState.Binding var isTableFocused: Bool
+        @Binding var targetedObjectId: S3Object.ID?
         @State private var isTargeted = false
 
         var body: some View {
@@ -432,9 +463,19 @@
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
             .padding(.horizontal, 12)
-            .background(isTargeted ? Color.blue.opacity(0.2) : Color.clear)
-            .cornerRadius(4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(
+                (isTargeted || targetedObjectId == object.id)
+                    ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear
+            )
             .contentShape(Rectangle())
+            .onChange(of: isTargeted) { targeted in
+                if targeted {
+                    targetedObjectId = object.id
+                } else if targetedObjectId == object.id {
+                    targetedObjectId = nil
+                }
+            }
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
                     if isRemoved(object.key) { return }
