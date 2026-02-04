@@ -73,13 +73,7 @@
                             showingRename = true
                         }
                     },
-                    onDelete: {
-                        if let selected = selectedObject {
-                            deleteItemKey = selected.key
-                            deleteIsFolder = selected.isFolder
-                            showingDelete = true
-                        }
-                    },
+                    onDelete: { triggerDelete() },
                     onShowTimeMachine: { showingTimeMachine = true },
                     onShowHistory: { openWindow(id: "activity-history") },
                     onShowLifecycle: { showingLifecycle = true }
@@ -201,6 +195,11 @@
                 }.frame(minWidth: 600, minHeight: 400)
             }
             .sheet(isPresented: $showingTimeMachine) { SnapshotTimelineView() }
+            .background(
+                Button("") { triggerDelete() }
+                    .keyboardShortcut(.delete, modifiers: .command)
+                    .opacity(0)
+            )
         }
 
         // --- Sub-views ---
@@ -431,6 +430,14 @@
             }
             if name.hasSuffix("/") { name = String(name.dropLast()) }
             return name
+        }
+
+        func triggerDelete() {
+            if let selected = selectedObject {
+                deleteItemKey = selected.key
+                deleteIsFolder = selected.isFolder
+                showingDelete = true
+            }
         }
 
         func formatBytes(_ bytes: Int64) -> String {
