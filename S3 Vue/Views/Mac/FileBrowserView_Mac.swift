@@ -215,8 +215,11 @@
                 } else {
                     Table(appState.objects, selection: $selectedObjectIds) {
                         TableColumn("Nom") { object in
-                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
-                            {
+                            RowCellWrapper(
+                                object: object, targetedObjectId: $targetedObjectId,
+                                selection: $selectedObjectIds, appState: appState,
+                                isFirstColumn: true
+                            ) {
                                 FileRowNameCell(
                                     object: object,
                                     appState: appState,
@@ -228,30 +231,40 @@
                         }.width(min: 200, ideal: 300)
 
                         TableColumn("Type") { object in
-                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
-                            {
+                            RowCellWrapper(
+                                object: object, targetedObjectId: $targetedObjectId,
+                                selection: $selectedObjectIds, appState: appState
+                            ) {
                                 Text(getType(for: object.key, isFolder: object.isFolder))
+                                    .padding(.horizontal, 12)
                                     .foregroundColor(
                                         targetedObjectId == object.id ? .white : .secondary)
                             }
                         }.width(min: 80, ideal: 100)
 
                         TableColumn("Date Modification") { object in
-                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
-                            {
+                            RowCellWrapper(
+                                object: object, targetedObjectId: $targetedObjectId,
+                                selection: $selectedObjectIds, appState: appState
+                            ) {
                                 Text(
                                     object.lastModified.formatted(
                                         date: .abbreviated, time: .shortened)
                                 )
+                                .padding(.horizontal, 12)
                                 .foregroundColor(
                                     targetedObjectId == object.id ? .white : .secondary)
                             }
                         }.width(min: 150, ideal: 180)
 
                         TableColumn("Taille") { object in
-                            RowCellWrapper(objectId: object.id, targetedObjectId: $targetedObjectId)
-                            {
+                            RowCellWrapper(
+                                object: object, targetedObjectId: $targetedObjectId,
+                                selection: $selectedObjectIds, appState: appState,
+                                isLastColumn: true
+                            ) {
                                 Text(object.isFolder ? " " : formatBytes(object.size))
+                                    .padding(.horizontal, 12)
                                     .foregroundColor(
                                         targetedObjectId == object.id ? .white : .secondary)
                             }
@@ -262,11 +275,15 @@
                     .onChange(of: isDraggingOverList) { dragging in
                         if dragging {
                             isTableFocused = false
-                        } else {
-                            // Restore focus only if not hovering a specific folder
-                            if targetedObjectId == nil {
-                                isTableFocused = true
-                            }
+                        } else if targetedObjectId == nil {
+                            isTableFocused = true
+                        }
+                    }
+                    .onChange(of: targetedObjectId) { id in
+                        if id != nil {
+                            isTableFocused = false
+                        } else if !isDraggingOverList {
+                            isTableFocused = true
                         }
                     }
                     .onDrop(of: [UTType.fileURL], isTargeted: $isDraggingOverList) {
@@ -453,27 +470,85 @@
         }
 
         struct RowCellWrapper<Content: View>: View {
-            let objectId: S3Object.ID
+            let object: S3Object
             @Binding var targetedObjectId: S3Object.ID?
+            @Binding var selection: Set<S3Object.ID>
+            @ObservedObject var appState: S3AppState
             let content: Content
+            let isFirstColumn: Bool
+            let isLastColumn: Bool
+
+            @State private var localIsTargeted = false
 
             init(
-                objectId: S3Object.ID, targetedObjectId: Binding<S3Object.ID?>,
+                object: S3Object,
+                targetedObjectId: Binding<S3Object.ID?>,
+                selection: Binding<Set<S3Object.ID>>,
+                appState: S3AppState,
+                isFirstColumn: Bool = false,
+                isLastColumn: Bool = false,
                 @ViewBuilder content: () -> Content
             ) {
-                self.objectId = objectId
+                self.object = object
                 self._targetedObjectId = targetedObjectId
+                self._selection = selection
+                self.appState = appState
+                self.isFirstColumn = isFirstColumn
+                self.isLastColumn = isLastColumn
                 self.content = content()
             }
 
             var body: some View {
-                let isTargeted = targetedObjectId == objectId
+                let isHovered = localIsTargeted || targetedObjectId == object.id
                 content
-                    .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .background(
-                        isTargeted ? Color(NSColor.selectedContentBackgroundColor) : Color.clear
+                        Group {
+                            if isHovered {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(Color(NSColor.selectedContentBackgroundColor))
+                                    .padding(.leading, isFirstColumn ? -5 : -20)
+                                    .padding(.trailing, isLastColumn ? -5 : -20)
+                                    .padding(.vertical, -4)  // Combler les pixels manquants
+                            } else {
+                                Color.clear
+                            }
+                        }
                     )
+                    .onDrop(of: [UTType.fileURL], isTargeted: $localIsTargeted) { providers in
+                        guard object.isFolder else { return false }
+                        let folderPrefix = object.key + (object.key.hasSuffix("/") ? "" : "/")
+                        for provider in providers {
+                            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                                if let url = url {
+                                    DispatchQueue.main.async {
+                                        var isDir: ObjCBool = false
+                                        if FileManager.default.fileExists(
+                                            atPath: url.path, isDirectory: &isDir)
+                                        {
+                                            if isDir.boolValue {
+                                                appState.uploadFolder(
+                                                    url: url, folderPrefix: folderPrefix)
+                                            } else {
+                                                appState.uploadFile(
+                                                    url: url, folderPrefix: folderPrefix)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return true
+                    }
+                    .onChange(of: localIsTargeted) { targeted in
+                        if targeted {
+                            targetedObjectId = object.id
+                            // Sync selection instantly to show details
+                            selection = [object.id]
+                        } else if targetedObjectId == object.id {
+                            targetedObjectId = nil
+                        }
+                    }
             }
         }
     }
@@ -503,18 +578,11 @@
                     .strikethrough(isRemoved(object.key))
                     .opacity(isRemoved(object.key) ? 0.6 : 1.0)
             }
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .foregroundColor(isHovered ? .white : .primary)
             .contentShape(Rectangle())
-            .onChange(of: isTargeted) { targeted in
-                if targeted {
-                    targetedObjectId = object.id
-                    // Act like a simple click: select the hovered object to show details
-                    selection = [object.id]
-                } else if targetedObjectId == object.id {
-                    targetedObjectId = nil
-                }
-            }
+            .contentShape(Rectangle())
             .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
                     if isRemoved(object.key) { return }
@@ -551,29 +619,6 @@
                 if !object.isFolder { appState.downloadFile(key: object.key) }
                 return NSItemProvider(
                     item: tempURL as NSSecureCoding, typeIdentifier: UTType.fileURL.identifier)
-            }
-            .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted) { providers in
-                guard object.isFolder else { return false }
-                let folderPrefix = object.key + (object.key.hasSuffix("/") ? "" : "/")
-                for provider in providers {
-                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                        if let url = url {
-                            DispatchQueue.main.async {
-                                var isDir: ObjCBool = false
-                                if FileManager.default.fileExists(
-                                    atPath: url.path, isDirectory: &isDir)
-                                {
-                                    if isDir.boolValue {
-                                        appState.uploadFolder(url: url, folderPrefix: folderPrefix)
-                                    } else {
-                                        appState.uploadFile(url: url, folderPrefix: folderPrefix)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                return true
             }
         }
 
