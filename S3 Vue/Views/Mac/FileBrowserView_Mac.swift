@@ -479,6 +479,7 @@
             let isLastColumn: Bool
 
             @State private var localIsTargeted = false
+            @State private var springLoadingTask: Task<Void, Never>? = nil
 
             init(
                 object: S3Object,
@@ -545,8 +546,35 @@
                             targetedObjectId = object.id
                             // Sync selection instantly to show details
                             selection = [object.id]
-                        } else if targetedObjectId == object.id {
-                            targetedObjectId = nil
+
+                            // SPRING LOADING: Ouvrir le dossier si on reste dessus
+                            if object.isFolder && object.key != ".." {
+                                springLoadingTask?.cancel()
+                                springLoadingTask = Task {
+                                    try? await Task.sleep(nanoseconds: 1_200_000_000)  // 1.2s
+                                    if !Task.isCancelled {
+                                        await MainActor.run {
+                                            // Extraire le nom du dossier pour la navigation
+                                            var folderName = object.key
+                                            if folderName.hasSuffix("/") {
+                                                folderName = String(folderName.dropLast())
+                                            }
+                                            if let lastSlash = folderName.lastIndex(of: "/") {
+                                                folderName = String(
+                                                    folderName[
+                                                        folderName.index(after: lastSlash)...])
+                                            }
+                                            appState.navigateTo(folder: folderName)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            springLoadingTask?.cancel()
+                            springLoadingTask = nil
+                            if targetedObjectId == object.id {
+                                targetedObjectId = nil
+                            }
                         }
                     }
             }
