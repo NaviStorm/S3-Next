@@ -347,7 +347,7 @@ class S3Client {
         let canonicalRequest =
             "\(method)\n\(safeCanonicalUri)\n\(canonicalQueryString)\n\(canonicalHeaders)\n\(signedHeaders)\n\(payloadHash)"
 
-        print("[S3] Canonical Request:\n\(canonicalRequest)")
+        // print("[S3] Canonical Request:\n\(canonicalRequest)")
 
         let credentialScope = "\(datestamp)/\(region)/s3/aws4_request"
         let stringToSign =

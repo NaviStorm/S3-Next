@@ -870,18 +870,20 @@ public final class S3AppState: ObservableObject {
         }
     }
 
-    func uploadFile(url: URL) {
+    func uploadFile(url: URL, folderPrefix: String? = nil) {
         guard let client = client else { return }
-        let prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        let prefix =
+            folderPrefix ?? (currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/")
         let key = prefix + url.lastPathComponent
 
         transferManager.uploadFile(
             url: url, targetKey: key, client: client, keyAlias: self.selectedEncryptionAlias)
     }
 
-    func uploadFolder(url: URL) {
+    func uploadFolder(url: URL, folderPrefix: String? = nil) {
         guard let client = client else { return }
-        let s3Prefix = currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/"
+        let s3Prefix =
+            folderPrefix ?? (currentPath.isEmpty ? "" : currentPath.joined(separator: "/") + "/")
         let targetPrefix = s3Prefix + url.lastPathComponent + "/"
 
         transferManager.uploadFolder(
@@ -993,6 +995,50 @@ public final class S3AppState: ObservableObject {
                     DispatchQueue.main.async {
                         self.isLoading = false
                         self.showToast("Rename Failed: \(error.localizedDescription)", type: .error)
+                    }
+                }
+            }
+        }
+    }
+
+    func moveObject(sourceKey: String, destinationPrefix: String, isFolder: Bool) {
+        guard let client = client else {
+            return
+        }
+        log("[MOVE] From: \(sourceKey) To Prefix: \(destinationPrefix)")
+
+        let fileName =
+            sourceKey.hasSuffix("/")
+            ? String(sourceKey.dropLast()).components(separatedBy: "/").last ?? ""
+            : sourceKey.components(separatedBy: "/").last ?? ""
+
+        let newKey = destinationPrefix + fileName + (isFolder ? "/" : "")
+
+        if sourceKey == newKey {
+            log("[MOVE] Source and destination are same. Skipping.")
+            return
+        }
+
+        DispatchQueue.main.async { self.isLoading = true }
+
+        if isFolder {
+            transferManager.renameFolder(oldKey: sourceKey, newKey: newKey, client: client)
+        } else {
+            Task {
+                do {
+                    try await client.copyObject(sourceKey: sourceKey, destinationKey: newKey)
+                    try await client.deleteObject(key: sourceKey)
+                    log("Moved file \(sourceKey) to \(newKey)")
+                    DispatchQueue.main.async {
+                        self.isLoading = false
+                        self.loadObjects()
+                        self.showToast("Fichier déplacé avec succès", type: .success)
+                    }
+                } catch {
+                    log("[MOVE ERROR] \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.isLoading = false
+                        self.showToast("Move Failed: \(error.localizedDescription)", type: .error)
                     }
                 }
             }
