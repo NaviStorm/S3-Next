@@ -310,7 +310,13 @@
                     }
                 }
                 statusBarSection
-            }.frame(minWidth: 400)
+            }
+            .frame(minWidth: 400)
+            .onChange(of: appState.currentPath) { _ in
+                // Sécurité : Réinitialiser tout état de survol lors d'une navigation
+                targetedObjectId = nil
+                isDraggingOverList = false
+            }
         }
 
         private var statusBarSection: some View {
@@ -575,6 +581,14 @@
                             if targetedObjectId == object.id {
                                 targetedObjectId = nil
                             }
+                        }
+                    }
+                    .onDisappear {
+                        // Sécurité : Nettoyer si la cellule disparait (par ex: navigation)
+                        springLoadingTask?.cancel()
+                        springLoadingTask = nil
+                        if targetedObjectId == object.id {
+                            targetedObjectId = nil
                         }
                     }
             }
